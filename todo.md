@@ -208,9 +208,9 @@ Cho mỗi D bên dưới: **Câu hỏi cần sếp/luật sư trả lời** → 
 
 # Phase 1 – Nền tảng dự án, hạ tầng, CI/CD
 
-Stack mặc định: pnpm monorepo · NestJS + Prisma + MySQL · React + Vite + TS · Redis + BullMQ · Socket.IO · MinIO/S3 · Docker Compose · Nginx.
+Stack mặc định: pnpm monorepo · NestJS + Prisma + MySQL · React + Vite + TS · Redis + BullMQ · Socket.IO · SeaweedFS/S3 · Docker Compose · Nginx.
 
-## [ ] P1.1 Khởi tạo monorepo
+## [x] P1.1 Khởi tạo monorepo
 - Việc làm:
   - Tạo `pnpm-workspace.yaml`, `package.json` gốc, thư mục `apps/api`, `apps/web`, `packages/shared`, `infra`, `docs`, `legacy/cvc-demo`.
   - Chép bản demo vào `legacy/cvc-demo/` (read-only; thêm `README` ghi rõ chỉ để tham chiếu).
@@ -224,7 +224,7 @@ Stack mặc định: pnpm monorepo · NestJS + Prisma + MySQL · React + Vite + 
 
 ## [ ] P1.3 Docker cho tất cả (môi trường dev)
 - Nguyên tắc: **mọi thứ chạy trong Docker**. Máy dev chỉ cần Docker + Git + editor; không cài MySQL/Redis/Node trực tiếp trên host.
-- Việc làm: `infra/docker-compose.dev.yml` gồm `mysql` (8, volume, healthcheck), `redis`, `minio` + `minio-init` (tạo bucket), `mailpit`, `clamav` (tùy chọn), `api` (Dockerfile target `dev`, bind mount source, hot reload `nest start --watch`), `worker` (cùng image api, chạy queue), `web` (target `dev`, Vite HMR), `adminer` (xem DB, chỉ dev). Dùng `depends_on: condition: service_healthy`; `.dockerignore` cho từng app; volume named cho `node_modules`/pnpm store để nhanh; `Makefile` hoặc script `pnpm docker:*` (`up`, `down`, `logs`, `shell`, `reset-db`).
+- Việc làm: `infra/docker-compose.dev.yml` gồm `mysql` (8, volume, healthcheck), `redis`, `seaweedfs` + `seaweedfs-init` (tạo bucket), `mailpit`, `clamav` (tùy chọn), `api` (Dockerfile target `dev`, bind mount source, hot reload `nest start --watch`), `worker` (cùng image api, chạy queue), `web` (target `dev`, Vite HMR), `adminer` (xem DB, chỉ dev). Dùng `depends_on: condition: service_healthy`; `.dockerignore` cho từng app; volume named cho `node_modules`/pnpm store để nhanh; `Makefile` hoặc script `pnpm docker:*` (`up`, `down`, `logs`, `shell`, `reset-db`).
 - Lệnh chuẩn: `docker compose -f infra/docker-compose.dev.yml up -d`; `... exec api pnpm test`; `... run --rm api pnpm prisma migrate dev`.
 - DoD: máy sạch chỉ có Docker → clone repo → một lệnh lên đủ dịch vụ trong vài phút; sửa code hot reload; lint/test chạy trong container.
 
@@ -267,8 +267,8 @@ Stack mặc định: pnpm monorepo · NestJS + Prisma + MySQL · React + Vite + 
 - DoD: `docker build` lặp lại được; container chạy non-root; quét trivy không lỗ hổng nghiêm trọng; cùng image chạy được với env khác nhau.
 
 ## [ ] P1.12 Docker Compose production
-- `infra/docker-compose.prod.yml`: `proxy` (Nginx/Caddy/Traefik: TLS, `/` → web, `/api` + `/socket.io` → api, giới hạn dung lượng upload), `web`, `api`, `worker`, `migrate` (one-off), `mysql`, `redis`, `minio`, `clamav`.
-- Mạng nội bộ riêng; **chỉ `proxy` publish 80/443**; mysql/redis/minio **không publish port**; `restart: unless-stopped`; `env_file`/secrets; named volumes (`mysql-data`, `minio-data`, `redis-data`, `certs`); `healthcheck` mỗi service; giới hạn log (`json-file` max-size/max-file); giới hạn CPU/RAM; `image: ${REGISTRY}/cvc-api:${IMAGE_TAG}`, **không dùng `build:`** trong prod.
+- `infra/docker-compose.prod.yml`: `proxy` (Nginx/Caddy/Traefik: TLS, `/` → web, `/api` + `/socket.io` → api, giới hạn dung lượng upload), `web`, `api`, `worker`, `migrate` (one-off), `mysql`, `redis`, `seaweedfs`, `clamav`.
+- Mạng nội bộ riêng; **chỉ `proxy` publish 80/443**; mysql/redis/seaweedfs **không publish port**; `restart: unless-stopped`; `env_file`/secrets; named volumes (`mysql-data`, `seaweed-data`, `redis-data`, `certs`); `healthcheck` mỗi service; giới hạn log (`json-file` max-size/max-file); giới hạn CPU/RAM; `image: ${REGISTRY}/cvc-api:${IMAGE_TAG}`, **không dùng `build:`** trong prod.
 - DoD: `docker compose -f docker-compose.prod.yml config` hợp lệ; dựng lại toàn hệ thống trên máy trống chỉ bằng compose + `.env`.
 
 ## [ ] P1.13 Build, nén và phân phối image
@@ -381,7 +381,7 @@ Quy ước chung cho mọi API: prefix `/api/v1`; phân trang `?page=&pageSize=`
 - DoD: mọi thao tác tiền, hợp đồng, phân quyền, tồn kho đều có log (test kiểm tra).
 
 ### [ ] P2.17 File service
-- Việc làm: upload qua presigned URL (client → S3/MinIO), `POST /files/presign` trả URL + `fileId`, `POST /files/:id/confirm`; kiểm tra MIME thật (magic bytes), giới hạn dung lượng theo loại; quét virus (ClamAV) bất đồng bộ, file chưa quét xong không cho tải; sinh thumbnail ảnh; quyền truy cập theo đối tượng sở hữu (`ownerType`, `ownerId`); tải xuống qua URL ký có hạn.
+- Việc làm: upload qua presigned URL (client → S3/SeaweedFS), `POST /files/presign` trả URL + `fileId`, `POST /files/:id/confirm`; kiểm tra MIME thật (magic bytes), giới hạn dung lượng theo loại; quét virus (ClamAV) bất đồng bộ, file chưa quét xong không cho tải; sinh thumbnail ảnh; quyền truy cập theo đối tượng sở hữu (`ownerType`, `ownerId`); tải xuống qua URL ký có hạn.
 - DoD: test từ chối file sai loại/quá lớn, file độc hại; không truy cập được file của người khác.
 
 ### [ ] P2.18 Notification engine
@@ -1502,7 +1502,7 @@ Mục tiêu: tự tin khi động vào tiền và hợp đồng. Chạy trong CI
 - Nội dung `docs/runbook.md`:
   - Thanh toán thủ công: minh chứng nghi giả, tiền về mà chưa có minh chứng, thừa/thiếu/sai nội dung/trùng, duyệt nhầm, chi nhầm, ledger lệch (các bước kiểm tra, ai quyết định, cách đảo bút toán).
   - Rollback deploy, khôi phục DB, khóa khẩn cấp tài khoản/rút tiền, bật/tắt chế độ bảo trì.
-  - Docker: container restart liên tục (xem log, health), đầy đĩa do image/log, khôi phục từ file nén, vào MySQL/Redis/MinIO trong container.
+  - Docker: container restart liên tục (xem log, health), đầy đĩa do image/log, khôi phục từ file nén, vào MySQL/Redis/SeaweedFS trong container.
   - Bên thứ 3 chết: bảng dịch vụ → triệu chứng → xử lý tạm → liên hệ (xem T9).
   - Sự cố bảo mật/lộ dữ liệu: các bước, thông báo người dùng và cơ quan (theo S7/D9).
   - Danh sách người trực, kênh liên lạc, thang leo cấp.

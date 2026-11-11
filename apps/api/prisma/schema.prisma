@@ -1,0 +1,24 @@
+// CVC Prisma schema. The full data model lands in later phases (P2+); see docs/erd.md.
+// Naming: tables plural snake_case via @@map; columns camelCase in code via @map.
+// Money: Decimal + a currency column (VND/CNY). Never float. Migrations additive only.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Foundational idempotency table (CLAUDE.md: every money API takes an Idempotency-Key).
+// Replaying the same key must not create a second transaction.
+model IdempotencyKey {
+  key         String   @id @db.VarChar(191)
+  scope       String   @db.VarChar(100)
+  requestHash String   @db.VarChar(64)
+  response    Json?
+  createdAt   DateTime @default(now())
+
+  @@map("idempotency_keys")
+}

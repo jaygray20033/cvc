@@ -1,0 +1,16 @@
+# Build context is the repo root (monorepo). Keep secrets and heavy/irrelevant files out.
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+legacy
+.git
+.github
+.husky
+docs
+**/.env
+**/.env.*
+*.tar.gz
+*.tar.gz.sha256
+test-results
+playwright-report

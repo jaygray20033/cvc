@@ -1,0 +1,14 @@
+legacy/
+**/dist/
+**/node_modules/
+**/coverage/
+apps/web/src/api/generated/
+apps/api/openapi.json
+pnpm-lock.yaml
+**/*.tsbuildinfo
+cvc-images-*.tar.gz
+*.tar.gz.sha256
+# Owner-maintained docs: do not reformat.
+CLAUDE.md
+todo.md
+docs/decisions.md

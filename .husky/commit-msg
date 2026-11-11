@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Docker-only: validate the commit message inside the api dev container.
+# Start the stack first with: pnpm docker:up
+if ! docker compose -f infra/docker-compose.dev.yml exec -T -w /work api pnpm exec commitlint --edit "$1"; then
+  echo "commit-msg failed. Use a task ID scope, e.g. feat(P1.2): ... (stack must be up)" >&2
+  exit 1
+fi

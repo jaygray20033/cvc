@@ -46,7 +46,7 @@ Các tích hợp tự động nằm ở Backlog; để sẵn lớp adapter để
 
 - Monorepo (pnpm workspaces).
 - **Toàn bộ chạy bằng Docker** (dev và production), xem mục 4.
-- `apps/api`: **NestJS + TypeScript + Prisma + MySQL**, Redis + BullMQ (job nền), Socket.IO (realtime), S3/MinIO (file).
+- `apps/api`: **NestJS + TypeScript + Prisma + MySQL**, Redis + BullMQ (job nền), Socket.IO (realtime), S3/SeaweedFS (file).
 - `apps/web`: **React + Vite + TypeScript**, React Router, TanStack Query, React Hook Form + Zod, Tailwind.
 - `packages/shared`: kiểu dữ liệu, enum trạng thái, schema Zod dùng chung api/web.
 - `infra/`: Dockerfile/compose (dev + prod), proxy, script build/nén image, deploy, rollback, backup.
@@ -61,7 +61,7 @@ Nếu cần đổi stack, hỏi trước. Không tự ý thêm framework/thư vi
 
 ```bash
 # Dev
-docker compose -f infra/docker-compose.dev.yml up -d      # mysql, redis, minio, mailpit, api, worker, web
+docker compose -f infra/docker-compose.dev.yml up -d      # mysql, redis, seaweedfs, mailpit, api, worker, web
 docker compose -f infra/docker-compose.dev.yml logs -f api
 docker compose -f infra/docker-compose.dev.yml exec api pnpm lint
 docker compose -f infra/docker-compose.dev.yml exec api pnpm test
@@ -82,7 +82,7 @@ Quy tắc Docker:
 - Thêm dependency: sửa `package.json` + lockfile rồi **rebuild image**.
 - Image production không chứa `.env`, test, devDependencies; chạy non-root; **cùng một image** chạy staging và production, chỉ khác env.
 - Cấu hình runtime của web đi qua `config.js` sinh lúc container khởi động (không build lại image cho từng môi trường).
-- Mọi service có `healthcheck`; ở production chỉ `proxy` publish 80/443, mysql/redis/minio không publish port.
+- Mọi service có `healthcheck`; ở production chỉ `proxy` publish 80/443, mysql/redis/seaweedfs không publish port.
 - **Cấm** `docker volume prune` và `prisma migrate reset` trên production. Migration chạy bằng service `migrate`, không tự chạy khi api khởi động.
 (Cập nhật mục này khi script thật đã có.)
 
