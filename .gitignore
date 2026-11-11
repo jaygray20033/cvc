@@ -1,0 +1,46 @@
+# === Demo reference (read-only, large) — owner pushes to GitHub separately ===
+legacy/
+
+# === Dependencies ===
+node_modules/
+.pnpm-store/
+
+# === Build output ===
+dist/
+build/
+*.tsbuildinfo
+
+# === Env & secrets (never commit) ===
+.env
+.env.*
+!.env.example
+
+# === Logs ===
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# === Test / coverage ===
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# === Docker image archives ===
+cvc-images-*.tar.gz
+*.tar.gz.sha256
+
+# === Editor / OS ===
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# === Misc cache ===
+.cache/
+.turbo/
+.eslintcache
