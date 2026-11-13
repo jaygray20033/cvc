@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
 # Docker-only: run lint-staged inside the api dev container (no host node_modules).
 # Start the stack first with: pnpm docker:up
-if ! docker compose -f infra/docker-compose.dev.yml exec -T -w /work api pnpm exec lint-staged; then
+# MSYS_NO_PATHCONV=1 stops Git-Bash (Windows) from rewriting the /work cwd path.
+if ! MSYS_NO_PATHCONV=1 docker compose -f infra/docker-compose.dev.yml exec -T -w /work api pnpm exec lint-staged; then
   echo "pre-commit failed. Is the dev stack up? Run: pnpm docker:up" >&2
   exit 1
 fi

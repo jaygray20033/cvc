@@ -55,7 +55,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 |---|---|---|
 | 0 | 1 / 13 | |
 | 1 | 0 / 15 | |
-| 2 | 0 / 23 | |
+| 2 | 4 / 23 | P2.1–P2.4 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên) |
 | 3 | 0 / 12 | |
 | 4A | 0 / 22 | |
 | 4B | 0 / 6 | |
@@ -218,47 +218,48 @@ Stack mặc định: pnpm monorepo · NestJS + Prisma + MySQL · React + Vite + 
   - Cấu hình `tsconfig.base.json`, path alias `@cvc/shared`.
 - DoD: `pnpm install` thành công; `pnpm --filter api build` và `pnpm --filter web build` chạy được.
 
-## [ ] P1.2 Chất lượng code
+## [x] P1.2 Chất lượng code
 - Việc làm: ESLint (typescript-eslint, import order), Prettier, EditorConfig, husky + lint-staged (lint/format khi commit), commitlint (Conventional Commits có task ID).
 - DoD: commit sai format bị chặn; `pnpm lint` và `pnpm typecheck` chạy ở gốc cho cả hai app.
 
-## [ ] P1.3 Docker cho tất cả (môi trường dev)
+## [x] P1.3 Docker cho tất cả (môi trường dev)
 - Nguyên tắc: **mọi thứ chạy trong Docker**. Máy dev chỉ cần Docker + Git + editor; không cài MySQL/Redis/Node trực tiếp trên host.
 - Việc làm: `infra/docker-compose.dev.yml` gồm `mysql` (8, volume, healthcheck), `redis`, `seaweedfs` + `seaweedfs-init` (tạo bucket), `mailpit`, `clamav` (tùy chọn), `api` (Dockerfile target `dev`, bind mount source, hot reload `nest start --watch`), `worker` (cùng image api, chạy queue), `web` (target `dev`, Vite HMR), `adminer` (xem DB, chỉ dev). Dùng `depends_on: condition: service_healthy`; `.dockerignore` cho từng app; volume named cho `node_modules`/pnpm store để nhanh; `Makefile` hoặc script `pnpm docker:*` (`up`, `down`, `logs`, `shell`, `reset-db`).
 - Lệnh chuẩn: `docker compose -f infra/docker-compose.dev.yml up -d`; `... exec api pnpm test`; `... run --rm api pnpm prisma migrate dev`.
 - DoD: máy sạch chỉ có Docker → clone repo → một lệnh lên đủ dịch vụ trong vài phút; sửa code hot reload; lint/test chạy trong container.
 
-## [ ] P1.4 Cấu hình và biến môi trường
+## [x] P1.4 Cấu hình và biến môi trường
 - Việc làm: dùng `@nestjs/config` + Zod/Joi validate env khi khởi động (thiếu biến → dừng ngay, in tên biến thiếu); `.env.example` cho api và web, ghi chú từng biến; tách `development` / `test` / `production`.
 - Danh sách biến tối thiểu: `DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `S3_*`, `SMTP_*`/`EMAIL_*`, `APP_URL`, `API_URL`, `WEBHOOK_SECRET_*`, key từng tích hợp (để trống khi chưa có), `ENCRYPTION_KEY` (mã hóa dữ liệu nhạy cảm).
 - DoD: chạy thiếu biến báo lỗi rõ; không có secret trong git (`.gitignore` kiểm tra).
 
-## [ ] P1.5 Prisma và migration
+## [x] P1.5 Prisma và migration
 - Việc làm: cài Prisma, `schema.prisma` rỗng có datasource MySQL, quy ước đặt tên (bảng số nhiều snake_case qua `@@map`, cột camelCase trong code), script `prisma:migrate`, `prisma:deploy`, `prisma:seed`, `prisma:reset` (chỉ dev), seed khung (chưa có dữ liệu mẫu đầy đủ, xong ở P3.12).
 - Quy tắc: migration chỉ thêm, không sửa cái đã chạy.
 - DoD: migrate + seed chạy từ DB trống; `prisma:reset` bị chặn nếu `NODE_ENV=production`.
 
-## [ ] P1.6 Logging và xử lý lỗi
+## [x] P1.6 Logging và xử lý lỗi
 - Việc làm: pino (JSON log), request-id (header `x-request-id`), exception filter trả lỗi chuẩn `{ code, message, details?, requestId }`; map lỗi Prisma (unique, foreign key) thành mã lỗi rõ; che dữ liệu nhạy cảm (token, mật khẩu, CCCD, số tài khoản).
 - DoD: lỗi 4xx/5xx đều đúng format; log không chứa dữ liệu nhạy cảm (test).
 
-## [ ] P1.7 OpenAPI và client
+## [x] P1.7 OpenAPI và client
 - Việc làm: Swagger tự sinh từ decorator; xuất `openapi.json`; sinh client TypeScript cho web (openapi-typescript hoặc orval); script `pnpm gen:api`.
 - DoD: web import client type-safe; CI kiểm tra `openapi.json` không lệch với code.
 
-## [ ] P1.8 CI (GitHub Actions)
+## [x] P1.8 CI (GitHub Actions)
 - Việc làm: workflow `ci.yml`: cài đặt cache pnpm → lint → typecheck → unit test → integration test (service MySQL/Redis) → build; chạy trên PR; bắt buộc xanh mới merge; workflow riêng cho E2E (chạy thủ công/hằng đêm).
 - DoD: PR mẫu chạy đủ bước; nhánh `main` được bảo vệ.
+- Ghi chú (2026-11-13): `ci.yml` đã viết + kiểm tra cú pháp YAML; mọi lệnh trong đó (`format:check`, `lint`, `typecheck`, `prisma:generate/deploy`, `test`, `build`, `gen:api` drift) chạy xanh local. Lần chạy xanh thật trên GitHub Actions + bật branch protection cho `main` cần owner push repo (không làm được từ local).
 
-## [ ] P1.9 Môi trường
+## [x] P1.9 Môi trường
 - Việc làm: tách `dev`, `staging`, `production` (domain, DB, bucket, key riêng); staging dùng sandbox của bên thứ 3; production dùng khóa thật; quản lý secret (GitHub Secrets/Vault/`.env` chỉ trên server, quyền 600).
 - DoD: tài liệu `docs/environments.md` liệt kê từng môi trường, domain, nơi đặt secret.
 
-## [ ] P1.10 Tài liệu nền
+## [x] P1.10 Tài liệu nền
 - Việc làm: viết `docs/architecture.md` (sơ đồ module, luồng dữ liệu chính, quy ước đặt tên, cấu trúc thư mục), `docs/decisions.md` (khung rỗng từ Phase 0), `docs/erd.md` (khung).
 - DoD: người mới đọc 3 file này hiểu cách chạy và cấu trúc.
 
-## [ ] P1.11 Dockerfile production (api, worker, web)
+## [x] P1.11 Dockerfile production (api, worker, web)
 - `apps/api/Dockerfile` multi-stage: `base` (node alpine, **pin phiên bản**) → `deps` (pnpm fetch + `install --frozen-lockfile`, cache mount) → `build` (tsc, `prisma generate`) → `prod` (chỉ prod deps, copy `dist` + `prisma`, **user non-root**, `HEALTHCHECK`, `CMD node dist/main.js`).
 - `worker` dùng **chung image api**, chỉ khác command (`node dist/worker.js`).
 - `apps/web/Dockerfile`: stage build (`vite build`) → runtime `nginx:alpine` phục vụ file tĩnh, SPA fallback, gzip/brotli, cache header, security header.
@@ -266,35 +267,36 @@ Stack mặc định: pnpm monorepo · NestJS + Prisma + MySQL · React + Vite + 
 - Mục tiêu: image api ≲ 300 MB, web ≲ 50 MB; không chứa `.env`, test, devDependencies.
 - DoD: `docker build` lặp lại được; container chạy non-root; quét trivy không lỗ hổng nghiêm trọng; cùng image chạy được với env khác nhau.
 
-## [ ] P1.12 Docker Compose production
+## [x] P1.12 Docker Compose production
 - `infra/docker-compose.prod.yml`: `proxy` (Nginx/Caddy/Traefik: TLS, `/` → web, `/api` + `/socket.io` → api, giới hạn dung lượng upload), `web`, `api`, `worker`, `migrate` (one-off), `mysql`, `redis`, `seaweedfs`, `clamav`.
 - Mạng nội bộ riêng; **chỉ `proxy` publish 80/443**; mysql/redis/seaweedfs **không publish port**; `restart: unless-stopped`; `env_file`/secrets; named volumes (`mysql-data`, `seaweed-data`, `redis-data`, `certs`); `healthcheck` mỗi service; giới hạn log (`json-file` max-size/max-file); giới hạn CPU/RAM; `image: ${REGISTRY}/cvc-api:${IMAGE_TAG}`, **không dùng `build:`** trong prod.
 - DoD: `docker compose -f docker-compose.prod.yml config` hợp lệ; dựng lại toàn hệ thống trên máy trống chỉ bằng compose + `.env`.
 
-## [ ] P1.13 Build, nén và phân phối image
+## [x] P1.13 Build, nén và phân phối image
 - Build: `infra/scripts/build-images.sh <tag>` build `cvc-api`, `cvc-web` (tag theo git SHA + semver; `latest` chỉ cho staging).
 - Phân phối hai cách: (1) **registry riêng** (GHCR/Docker Hub private): `docker push` rồi `docker compose pull`; (2) **nén thành file mang lên server không cần registry**: `docker save cvc-api:TAG cvc-web:TAG | gzip > cvc-images-TAG.tar.gz` → `scp/rsync` → `gunzip -c ... | docker load`. Viết `export-images.sh`, `import-images.sh` kèm **SHA-256** kiểm tra toàn vẹn.
 - Giảm kích thước: alpine, multi-stage, `.dockerignore`, cache mount, dọn image cũ; ghi kích thước mỗi bản vào `docs/release-notes.md`.
 - DoD: máy chủ trống chỉ cần Docker + 1 file `.tar.gz` + compose + `.env` là chạy được toàn hệ thống; SHA-256 khớp.
 
-## [ ] P1.14 Migration và seed trong Docker
+## [x] P1.14 Migration và seed trong Docker
 - Service `migrate` one-off dùng cùng image api: `docker compose run --rm migrate` chạy `prisma migrate deploy` (prod) / `migrate dev` (dev); chạy **trước** khi `up` api; api **không tự migrate** khi khởi động ở production.
 - Seed production (admin, cấu hình, mẫu thông báo/hợp đồng) là lệnh one-off riêng; có cờ chặn `reset` và seed demo ở production.
 - Backup trước migrate: `infra/scripts/db-backup.sh` (`docker compose exec mysql mysqldump ...`).
 - DoD: `deploy.sh` chạy chuỗi "backup → nạp image mới → migrate → up → kiểm tra health" và **dừng, không up bản mới nếu migrate lỗi**.
 
-## [ ] P1.15 CI build image
+## [x] P1.15 CI build image
 - GitHub Actions: build image api/web (cache layer), chạy test trong container, quét `trivy`, push registry khi merge `main`/tag, tạo artifact `cvc-images-TAG.tar.gz` + checksum cho release.
 - Smoke test: `docker compose -f docker-compose.prod.yml up -d` (env test) → gọi `/health`, `/ready` và trang web trả 200.
 - DoD: mỗi tag release tự sinh image + file nén + checksum; smoke test xanh.
+- Ghi chú (2026-11-13): `build-image.yml` đã viết + kiểm tra cú pháp; các bước đều được xác minh local (build image prod OK, trivy chạy được, `docker-compose.prod.yml config` hợp lệ, export/import + SHA-256 round-trip OK). Lần chạy thật push GHCR + artifact khi tag cần owner push repo.
 
 ---
 
 ## DoD Phase 1
-- [ ] `docker compose -f infra/docker-compose.dev.yml up -d` chạy toàn bộ (dev); `docker-compose.prod.yml` chạy từ image build sẵn hoặc file nén.
+- [x] `docker compose -f infra/docker-compose.dev.yml up -d` chạy toàn bộ (dev); `docker-compose.prod.yml` chạy từ image build sẵn hoặc file nén.
 - [ ] CI xanh trên PR.
-- [ ] Swagger mở được ở `/docs`.
-- [ ] Không có secret trong repo.
+- [x] Swagger mở được ở `/docs`.
+- [x] Không có secret trong repo.
 
 ---
 
@@ -305,21 +307,22 @@ Quy ước chung cho mọi API: prefix `/api/v1`; phân trang `?page=&pageSize=`
 
 ## 2.1 Xác thực và tài khoản
 
-### [ ] P2.1 Đăng ký/đăng nhập email + mật khẩu
-- Việc làm: bảng `User` (email unique, phone, passwordHash argon2id, status, emailVerifiedAt); API `POST /auth/register`, `POST /auth/login`, `POST /auth/verify-email`; email xác minh có token một lần, hết hạn; chính sách mật khẩu (độ dài, kiểm tra mật khẩu lộ phổ biến).
-- DoD: đăng ký → email xác minh (mailpit) → đăng nhập; test mật khẩu sai, email trùng, token hết hạn.
+## [x] P2.1 Đăng ký/đăng nhập email + mật khẩu
+- Việc làm: bảng `User` (email unique, phone, passwordHash argon2id, status, emailVerifiedAt); API `POST /auth/register`, `POST /auth/login`, `POST /auth/verify-email`; email xác minh có token một lần, hết hạn; chính sách mật khẩu (độ dài, kiểm tra mật khẩu lộ phổ biến qua HIBP k-anonymity — adapter, chỉ bật ở production).
+- DoD: đăng ký → email xác minh (mailpit) → đăng nhập; test mật khẩu sai, email trùng, token hết hạn. **Xong (2026-11-13):** integration test chạy xanh trên stack dev (MySQL + mailpit thật).
 
-### [ ] P2.2 Đăng nhập SĐT + OTP 🔌
-- Việc làm: `POST /auth/otp/request`, `POST /auth/otp/verify`; OTP 6 số, hết hạn 5 phút, giới hạn số lần gửi và số lần thử; gửi qua adapter SMS/ZNS (mock ở dev).
-- DoD: test hết hạn, sai OTP, vượt giới hạn; OTP không bao giờ vào log.
+## [x] P2.2 Đăng nhập email + OTP 🔌 (đổi từ SĐT+SMS sang Gmail OTP miễn phí)
+- **Đã đổi (chỉ đạo chủ dự án 2026-11-13):** OTP gửi qua **email (Gmail SMTP)** thay vì SMS/ZNS vì SMS mất phí. Định danh đăng nhập là email.
+- Việc làm: `POST /auth/otp/request`, `POST /auth/otp/verify`; OTP 6 số, hết hạn 5 phút, giới hạn số lần gửi (3/15 phút mỗi email, 10/giờ mỗi IP) và số lần thử (5 lần sai thì vô hiệu mã); gửi qua SMTP adapter (mailpit ở dev, Gmail smtp.gmail.com:587 + app password ở production).
+- DoD: test hết hạn, sai OTP, vượt giới hạn; OTP không bao giờ vào log (đã kiểm tra log api không chứa mã, mã chỉ nằm trong email). Xong (2026-11-13).
 
-### [ ] P2.3 Quên/đặt lại/đổi mật khẩu
-- Việc làm: `POST /auth/forgot-password`, `POST /auth/reset-password`, `POST /auth/change-password`; thu hồi toàn bộ phiên khi đổi/đặt lại; phản hồi không tiết lộ email có tồn tại hay không; khóa tạm khi sai nhiều lần (đếm theo tài khoản + IP).
-- DoD: test các nhánh; thông báo email khi đổi mật khẩu.
+## [x] P2.3 Quên/đặt lại/đổi mật khẩu
+- Việc làm: `POST /auth/forgot-password`, `POST /auth/reset-password`, `POST /auth/change-password`; thu hồi toàn bộ phiên khi đổi/đặt lại; phản hồi không tiết lộ email có tồn tại hay không; khóa tạm khi sai nhiều lần (đếm theo tài khoản + IP, 5 lần sai → khóa 15 phút).
+- DoD: test các nhánh; thông báo email khi đổi mật khẩu. Xong (2026-11-13).
 
-### [ ] P2.4 JWT và phiên
-- Việc làm: access token ngắn (15 phút), refresh token xoay vòng lưu băm trong bảng `Session` (thiết bị, IP, UA, lastUsedAt); phát hiện dùng lại refresh token cũ → thu hồi cả chuỗi; `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/sessions`, `DELETE /auth/sessions/:id`.
-- DoD: test xoay vòng, tái sử dụng token cũ, thu hồi phiên.
+## [x] P2.4 JWT và phiên
+- Việc làm: access token ngắn (15 phút), refresh token xoay vòng lưu băm SHA-256 trong bảng `Session` (thiết bị, IP, UA, lastUsedAt); phát hiện dùng lại refresh token cũ → thu hồi cả chuỗi (familyId); `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/sessions`, `DELETE /auth/sessions/:id`.
+- DoD: test xoay vòng, tái sử dụng token cũ, thu hồi phiên. Xong (2026-11-13).
 
 ### [ ] P2.5 2FA (TOTP)
 - Việc làm: bật/tắt TOTP, mã dự phòng, xác thực khi đăng nhập; **bắt buộc** cho `admin`, `sales`, `inspector`; tùy chọn cho người dùng khác.

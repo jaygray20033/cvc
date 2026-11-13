@@ -36,6 +36,14 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional().default(''),
   EMAIL_FROM: z.string().min(1),
 
+  // Password breach check (HIBP k-anonymity). Third-party HTTP call, so it is
+  // disabled by default outside production (CLAUDE.md: no real 3rd-party calls
+  // in dev/test).
+  PASSWORD_BREACH_CHECK: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value === 'true')),
+
   // Optional provider keys (empty until integrated; no gateway/webhook per D13).
   SMS_PROVIDER_KEY: z.string().optional().default(''),
   ZNS_PROVIDER_KEY: z.string().optional().default(''),

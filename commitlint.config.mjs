@@ -1,17 +1,18 @@
-// Conventional Commits + a task ID scope, e.g. feat(P1.2): add lint tooling.
-// See CLAUDE.md section 8 for the commit convention.
+// Conventional Commits. Task ID scope (e.g. P1.2) is recommended per CLAUDE.md
+// but only a *warning* since 2026-11-13 (owner request): any scope word or even
+// no scope is accepted, so `feat(auth): ...` and `feat: ...` both pass.
 const taskId = (parsed) => {
   const scope = parsed.scope ?? '';
   const ok = /^[A-Z]\d+(\.\d+)?$/.test(scope);
-  return [ok, 'scope must be a task ID like P1.2 (see CLAUDE.md)'];
+  return [ok, 'scope should be a task ID like P1.2 (see CLAUDE.md)'];
 };
 
 export default {
   extends: ['@commitlint/config-conventional'],
   plugins: [{ rules: { 'task-id': taskId } }],
   rules: {
-    'task-id': [2, 'always'],
-    'scope-empty': [2, 'never'],
+    'task-id': [1, 'always'],
+    'scope-empty': [0],
     'scope-case': [0],
   },
 };

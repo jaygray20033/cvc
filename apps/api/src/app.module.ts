@@ -5,9 +5,13 @@ import { LoggerModule } from 'nestjs-pino';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { buildPinoOptions } from './common/logger/logger.config';
+import { MailModule } from './common/mail/mail.module';
 import { validateEnv } from './config/env.validation';
+import { PrismaModule } from './prisma/prisma.module';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -22,6 +26,10 @@ import { validateEnv } from './config/env.validation';
         pinoHttp: buildPinoOptions(config.get<string>('app.nodeEnv', 'development')),
       }),
     }),
+    PrismaModule,
+    RedisModule,
+    MailModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_FILTER, useClass: AllExceptionsFilter }],

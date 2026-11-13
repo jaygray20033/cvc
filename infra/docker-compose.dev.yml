@@ -27,6 +27,8 @@ x-api-env: &api-env
   SMTP_USER: ''
   SMTP_PASS: ''
   EMAIL_FROM: 'CVC <no-reply@cvc.local>'
+  # Integration tests (jest) run against the real stack inside the api container.
+  RUN_DB_TESTS: '1'
   npm_config_store_dir: /pnpm/store
 
 services:
@@ -72,7 +74,8 @@ services:
       - seaweed-data:/data
       - ./seaweedfs/docker-entrypoint.sh:/etc/seaweedfs/docker-entrypoint.sh:ro
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:9333/cluster/status >/dev/null 2>&1 || exit 1']
+      test:
+        ['CMD-SHELL', 'wget -qO- http://127.0.0.1:9333/cluster/status >/dev/null 2>&1 || exit 1']
       interval: 10s
       timeout: 5s
       retries: 10

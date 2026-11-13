@@ -22,3 +22,93 @@ model IdempotencyKey {
 
   @@map("idempotency_keys")
 }
+
+// ---------------------------------------------------------------------------
+// Auth domain (P2.1–P2.4). Roles/KYC/organizations land in P2.7+ / P3.1.
+// Secrets are never stored in plaintext: passwords are argon2id hashes, email
+// verification / password-reset tokens and OTP codes are stored as SHA-256
+// hashes, refresh tokens are stored hashed inside Session.
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  DISABLED
+}
+
+enum TokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+model User {
+  id              String      @id @default(cuid())
+  email           String      @unique @db.VarChar(191)
+  emailVerifiedAt DateTime?
+  phone           String?     @unique @db.VarChar(20)
+  passwordHash    String?     @db.VarChar(255)
+  status          UserStatus  @default(PENDING_VERIFICATION)
+  lastLoginAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  sessions           Session[]
+  verificationTokens VerificationToken[]
+
+  @@map("users")
+}
+
+// One-time tokens for email verification and password reset.
+// Token itself is random 32 bytes hex, only the SHA-256 hash is stored.
+model VerificationToken {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      TokenType
+  tokenHash String     @unique @db.VarChar(64)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime   @default(now())
+
+  @@index([userId, type])
+  @@map("verification_tokens")
+}
+
+// Login sessions. refreshHash holds the SHA-256 of the *current* refresh
+// token; familyId groups a rotation chain so reuse of an old token revokes
+// the whole chain (P2.4).
+model Session {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId    String    @db.VarChar(64)
+  refreshHash String    @unique @db.VarChar(64)
+  expiresAt   DateTime
+  lastUsedAt  DateTime  @default(now())
+  revokedAt   DateTime?
+  ip          String?   @db.VarChar(64)
+  userAgent   String?   @db.VarChar(512)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId, familyId])
+  @@index([userId, revokedAt])
+  @@map("sessions")
+}
+
+// Email OTP codes for password-free login (P2.2, delivered via Gmail/SMTP —
+// no SMS per the cost decision). Only the SHA-256 hash of the code is stored
+// and the code never appears in logs.
+model OtpRequest {
+  id         String    @id @default(cuid())
+  email      String    @db.VarChar(191)
+  codeHash   String    @db.VarChar(64)
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  ip         String?   @db.VarChar(64)
+  createdAt  DateTime  @default(now())
+
+  @@index([email, createdAt])
+  @@map("otp_requests")
+}

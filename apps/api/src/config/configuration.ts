@@ -34,4 +34,8 @@ export default (env: Env) => ({
     pass: env.SMTP_PASS,
     from: env.EMAIL_FROM,
   },
+  password: {
+    // Breach check (HIBP) defaults on in production only.
+    breachCheck: env.PASSWORD_BREACH_CHECK ?? env.NODE_ENV === 'production',
+  },
 });
