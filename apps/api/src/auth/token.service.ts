@@ -5,15 +5,12 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
+import type { AccessPayload } from '../common/decorators/current-user.decorator';
 import { parseTtlToSeconds } from '../common/utils/ttl';
 
 const AUTH_MFA_TTL = '5m';
 
-export interface AccessPayload {
-  sub: string;
-  email: string;
-  sid: string;
-}
+export type { AccessPayload };
 
 export interface RefreshPayload {
   sid: string;

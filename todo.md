@@ -55,7 +55,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 |---|---|---|
 | 0 | 1 / 13 | |
 | 1 | 0 / 15 | |
-| 2 | 6 / 23 | P2.1–P2.6 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit) |
+| 2 | 10 / 23 | P2.1–P2.10 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me) |
 | 3 | 0 / 12 | |
 | 4A | 0 / 22 | |
 | 4B | 0 / 6 | |
@@ -334,22 +334,22 @@ Quy ước chung cho mọi API: prefix `/api/v1`; phân trang `?page=&pageSize=`
 
 ## 2.2 Phân quyền
 
-### [ ] P2.7 RBAC 7 vai trò
+## [x] P2.7 RBAC 7 vai trò
 - Việc làm: enum `Role = buyer | participant | retailer | supplier | sales | inspector | admin` (từ `domain.js` `roles`); decorator `@Roles()`, guard; ma trận quyền ghi ở `docs/permissions.md` (vai trò × nhóm endpoint).
-- DoD: ma trận có test tự động quét toàn bộ route, route nào thiếu khai báo quyền thì test fail.
+- DoD: ma trận có test tự động quét toàn bộ route, route nào thiếu khai báo quyền thì test fail. Xong (2026-11-14) — `@Roles()` + `RolesGuard` (đăng ký sau JwtAuthGuard, mặc định từ chối); test `route-declaration.spec.ts` quét mọi controller qua DiscoveryService; ma trận ở `docs/permissions.md`.
 
-### [ ] P2.8 Phân quyền theo bản ghi (chống IDOR)
+## [x] P2.8 Phân quyền theo bản ghi (chống IDOR)
 - Việc làm: policy theo đối tượng (ví dụ `OrderPolicy.canView(user, order)`); mọi truy vấn lọc theo chủ sở hữu/tham gia; không trả 403 lộ sự tồn tại khi nên trả 404.
-- DoD: bộ test thử truy cập chéo (user A đọc đơn của user B) cho mọi module.
+- DoD: bộ test thử truy cập chéo (user A đọc đơn của user B) cho mọi module. Xong phần nền tảng (2026-11-14) — helper `assertOwned()` ở `common/policies/ownership.ts` (404 khi không sở hữu), test truy cập chéo cho auth (phiên đăng nhập A không thu hồi được của B → 404); các module P3+ khi ra đời tự thêm policy + test IDOR riêng.
 
-### [ ] P2.9 Nhiều vai trò trên một tài khoản
+## [x] P2.9 Nhiều vai trò trên một tài khoản
 - Việc làm: bảng `UserRole`; API `GET /me`, `POST /me/active-role`; token chứa vai trò đang dùng; chuyển vai trò không cần đăng nhập lại nhưng ghi audit.
 - Không dùng bộ chuyển vai trò DEMO.
-- DoD: người vừa mua hộ vừa bán giùm chuyển vai trò đúng, dữ liệu tách biệt.
+- DoD: người vừa mua hộ vừa bán giùm chuyển vai trò đúng, dữ liệu tách biệt. Xong (2026-11-14) — bảng `user_roles` (backfill từ cột Json cũ, đã drop), access token chứa claim `role` = vai trò đang dùng của phiên (`sessions.activeRole`), `GET /me` + `POST /me/active-role` (cấp token mới, không cần login lại, ghi audit log pino — chuyển sang bảng AuditLog ở P2.16).
 
-### [ ] P2.10 Phân quyền admin chi tiết
+## [x] P2.10 Phân quyền admin chi tiết
 - Việc làm: nhóm quyền admin: `admin_super`, `admin_ops`, `admin_finance`, `admin_support`; quyền rút/duyệt tiền chỉ cho `admin_finance`/`admin_super`; cấu hình hệ thống chỉ `admin_super`.
-- DoD: test từng nhóm.
+- DoD: test từng nhóm. Xong (2026-11-14) — nhóm lưu trong `user_roles` dạng `admin_*`, decorator `@AdminGroups()` + RolesGuard đọc DB trực tiếp (thu hồi có hiệu lực ngay); unit test từng nhóm (finance/super/ops, không nhóm → 403); áp lên admin endpoint thật khi P4 ra đời.
 
 ## 2.3 Hồ sơ và KYC
 

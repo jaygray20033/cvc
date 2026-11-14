@@ -4,6 +4,7 @@ import { Secret, TOTP } from 'otpauth';
 import request from 'supertest';
 
 import { AppModule } from '../app.module';
+import { MeService } from '../me/me.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { TokenService } from './token.service';
@@ -565,8 +566,13 @@ describeDb('Auth API (integration: P2.1–P2.4)', () => {
     }).generate();
   }
 
+  // Replaces the account's roles with the given list (P2.9 semantics).
   async function promoteToRoles(email: string, roles: string[]): Promise<void> {
-    await prisma.user.update({ where: { email }, data: { roles } });
+    const user = await prisma.user.findUnique({ where: { email } });
+    await prisma.userRole.deleteMany({ where: { userId: user!.id } });
+    await prisma.userRole.createMany({
+      data: roles.map((role) => ({ userId: user!.id, role })),
+    });
   }
 
   // OTP login for users who cannot password-login (no 2FA yet, or challenge
@@ -801,6 +807,122 @@ describeDb('Auth API (integration: P2.1–P2.4)', () => {
         const res = await request(app.getHttpServer()).get('/health');
         expect(res.status).toBe(200);
       }
+    });
+  });
+
+  // ---------------------------------------------- P2.7/P2.8/P2.9 authorization
+
+  describe('P2.8 record ownership (anti-IDOR)', () => {
+    it("user A gets 404 when revoking user B's session; B's session keeps working", async () => {
+      const emailA = makeEmail();
+      const emailB = makeEmail();
+      const tokensA = await registerAndLogin(emailA);
+      const tokensB = await registerAndLogin(emailB);
+
+      const sessionsB = await request(app.getHttpServer())
+        .get('/api/v1/auth/sessions')
+        .set('Authorization', `Bearer ${tokensB.accessToken}`);
+      const sessionBId = sessionsB.body[0].id as string;
+
+      // A tries to revoke B's session: 404, never 403 (no existence leak).
+      const cross = await request(app.getHttpServer())
+        .delete(`/api/v1/auth/sessions/${sessionBId}`)
+        .set('Authorization', `Bearer ${tokensA.accessToken}`);
+      expect(cross.status).toBe(404);
+
+      // B's session is untouched.
+      const stillOk = await request(app.getHttpServer())
+        .get('/api/v1/auth/sessions')
+        .set('Authorization', `Bearer ${tokensB.accessToken}`);
+      expect(stillOk.status).toBe(200);
+
+      // A's own list never contains B's session.
+      const sessionsA = await request(app.getHttpServer())
+        .get('/api/v1/auth/sessions')
+        .set('Authorization', `Bearer ${tokensA.accessToken}`);
+      expect(sessionsA.body.map((s: { id: string }) => s.id)).not.toContain(sessionBId);
+    });
+  });
+
+  describe('P2.9 multi-role /me + active-role', () => {
+    it('GET /me returns the account roles and the active one', async () => {
+      const email = makeEmail();
+      await registerAndLogin(email);
+      await promoteToRoles(email, ['participant', 'retailer']);
+
+      // Session was created before promotion: activeRole stays buyer until
+      // the user switches (roles are read from the session's activeRole).
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: PASSWORD });
+      const { accessToken } = login.body;
+      const me = await request(app.getHttpServer())
+        .get('/api/v1/me')
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(me.status).toBe(200);
+      expect(me.body.email).toBe(email);
+      expect(me.body.roles).toEqual(['participant', 'retailer']);
+      expect(me.body.activeRole).toBe('participant'); // first assigned role
+    });
+
+    it('switching active role re-issues the token without re-login and keeps it on refresh', async () => {
+      const email = makeEmail();
+      await registerAndLogin(email);
+      await promoteToRoles(email, ['participant', 'retailer']);
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: PASSWORD });
+      const { accessToken, refreshToken } = login.body;
+
+      // Audit trail (P2.9): the switch must be logged (AuditLog in P2.16).
+      const meService = app.get(MeService);
+      const warnSpy = jest.spyOn(meService['logger'], 'warn');
+
+      const switched = await request(app.getHttpServer())
+        .post('/api/v1/me/active-role')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ role: 'retailer' });
+      expect(switched.status).toBe(200);
+      expect(switched.body.activeRole).toBe('retailer');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'role_switched', from: 'participant', to: 'retailer' }),
+        'active role switched',
+      );
+
+      // The session row keeps the role in use.
+      const decoded = JSON.parse(
+        Buffer.from(switched.body.accessToken.split('.')[1], 'base64url').toString(),
+      ) as { role: string; sid: string };
+      expect(decoded.role).toBe('retailer');
+      const session = await prisma.session.findUnique({ where: { id: decoded.sid } });
+      expect(session?.activeRole).toBe('retailer');
+
+      // ...is accepted on protected routes...
+      const me = await request(app.getHttpServer())
+        .get('/api/v1/me')
+        .set('Authorization', `Bearer ${switched.body.accessToken}`);
+      expect(me.status).toBe(200);
+      expect(me.body.activeRole).toBe('retailer');
+
+      // ...and survives a refresh rotation.
+      const refresh = await request(app.getHttpServer())
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken });
+      expect(refresh.status).toBe(200);
+      const refreshedPayload = JSON.parse(
+        Buffer.from(refresh.body.accessToken.split('.')[1], 'base64url').toString(),
+      ) as { role: string };
+      expect(refreshedPayload.role).toBe('retailer');
+    });
+
+    it('rejects switching to a role the account does not hold', async () => {
+      const email = makeEmail();
+      const { accessToken } = await registerAndLogin(email); // buyer only
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/me/active-role')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ role: 'admin' });
+      expect(res.status).toBe(400);
     });
   });
 });

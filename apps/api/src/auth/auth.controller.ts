@@ -15,6 +15,7 @@ import type { Request } from 'express';
 
 import { type AccessPayload, CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { AUTH_LIMITS, readRequestMeta, type RequestMeta } from './auth.constants';
 import {
@@ -118,6 +119,7 @@ export class AuthController {
     return this.auth.resetPassword(dto);
   }
 
+  @Roles()
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Đổi mật khẩu khi đã đăng nhập; thu hồi mọi phiên' })
@@ -130,6 +132,7 @@ export class AuthController {
 
   // ------------------------------------------------------------- 2FA (P2.5)
 
+  @Roles()
   @Post('2fa/setup')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Bắt đầu thiết lập TOTP: trả về secret + URI để quét QR' })
@@ -137,6 +140,7 @@ export class AuthController {
     return this.auth.setup2fa(user);
   }
 
+  @Roles()
   @Post('2fa/enable')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Kích hoạt 2FA bằng mã 6 số; trả về mã dự phòng một lần' })
@@ -147,6 +151,7 @@ export class AuthController {
     return this.auth.enable2fa(user, dto);
   }
 
+  @Roles()
   @Post('2fa/disable')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Tắt 2FA (yêu cầu mật khẩu); xoá mọi mã dự phòng' })
@@ -178,6 +183,7 @@ export class AuthController {
     return this.auth.refresh(dto.refreshToken, this.meta(req));
   }
 
+  @Roles()
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Đăng xuất phiên hiện tại' })
@@ -188,12 +194,14 @@ export class AuthController {
     return this.auth.logout(user, dto);
   }
 
+  @Roles()
   @Get('sessions')
   @ApiOperation({ summary: 'Danh sách phiên đăng nhập đang hoạt động' })
   sessions(@CurrentUser() user: AccessPayload) {
     return this.auth.listSessions(user);
   }
 
+  @Roles()
   @Delete('sessions/:id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Thu hồi một phiên đăng nhập' })

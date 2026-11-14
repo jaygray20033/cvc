@@ -48,9 +48,6 @@ model User {
   phone           String?     @unique @db.VarChar(20)
   passwordHash    String?     @db.VarChar(255)
   status          UserStatus  @default(PENDING_VERIFICATION)
-  // Array of role strings (P2.7 replaces this with a proper UserRole table).
-  // e.g. ["buyer", "admin"]; default buyer.
-  roles           Json        @default("[\"buyer\"]")
   // TOTP 2FA (P2.5). Secret is AES-256-GCM encrypted (ENCRYPTION_KEY);
   // totpSecret set but totpEnabledAt null = setup in progress.
   totpSecret      String?     @db.VarChar(255)
@@ -62,8 +59,26 @@ model User {
   sessions           Session[]
   verificationTokens VerificationToken[]
   recoveryCodes      RecoveryCode[]
+  userRoles          UserRole[]
 
   @@map("users")
+}
+
+// Platform roles per user (P2.9). Source of truth for RBAC — replaces the
+// roles Json stopgap column on User. Admin permission groups (P2.10:
+// admin_super/admin_finance/admin_ops/admin_support) are stored here too as
+// `admin_*` rows; only users holding `admin` should have them.
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @db.VarChar(32)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, role])
+  @@index([role])
+  @@map("user_roles")
 }
 
 // One-time backup codes for TOTP login (P2.5). Only SHA-256 hashes stored,
@@ -105,6 +120,9 @@ model Session {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   familyId    String    @db.VarChar(64)
   refreshHash String    @unique @db.VarChar(64)
+  // Role currently in use for this session (P2.9). Switching roles re-issues
+  // the access token without a new login and is audit-logged.
+  activeRole  String    @default("buyer") @db.VarChar(32)
   expiresAt   DateTime
   lastUsedAt  DateTime  @default(now())
   revokedAt   DateTime?

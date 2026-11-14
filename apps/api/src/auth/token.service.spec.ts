@@ -23,7 +23,12 @@ describe('TokenService', () => {
   });
 
   it('signs and verifies an access token payload', () => {
-    const token = service.accessToken({ sub: 'user-1', email: 'a@b.c', sid: 'session-1' });
+    const token = service.accessToken({
+      sub: 'user-1',
+      email: 'a@b.c',
+      sid: 'session-1',
+      role: 'buyer',
+    });
     const decoded = (service as unknown as { jwt: JwtService }).jwt.verify<{
       sub: string;
       email: string;

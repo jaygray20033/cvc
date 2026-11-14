@@ -1,6 +1,7 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
+import { Role } from '@cvc/shared';
 import {
   BadRequestException,
   ConflictException,
@@ -26,6 +27,7 @@ import {
   verifyEmailHtml,
   verifyEmailText,
 } from '../common/mail/mail.templates';
+import { assertOwned } from '../common/policies/ownership';
 import { decryptAesGcm, encryptAesGcm } from '../common/utils/encryption';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -108,6 +110,8 @@ export class AuthService {
         status: 'PENDING_VERIFICATION',
       },
     });
+    // Everyone starts as a buyer (P2.9: roles live in user_roles).
+    await this.prisma.userRole.create({ data: { userId: user.id, role: Role.Buyer } });
 
     await this.sendVerificationEmail(user.id, user.email);
     return { message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác minh tài khoản.' };
@@ -190,7 +194,7 @@ export class AuthService {
     if (user.totpEnabledAt) {
       return { twoFactorRequired: true, pendingToken: this.tokens.createMfaToken(user.id) };
     }
-    if (this.requiresTwoFactor(user)) {
+    if (await this.requiresTwoFactor(user.id)) {
       throw new ForbiddenException({
         code: AuthErrorCode.TwoFactorRequired,
         message:
@@ -699,6 +703,7 @@ export class AuthService {
       sub: session.userId,
       email: session.user.email,
       sid: session.id,
+      role: session.activeRole, // keep the role in use for this session (P2.9)
     });
     return {
       accessToken,
@@ -746,12 +751,14 @@ export class AuthService {
 
   async revokeSession(actor: AccessPayload, sessionId: string): Promise<{ message: string }> {
     const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
-    if (!session || session.userId !== actor.sub) {
+    // 404 for missing OR not-owned sessions: no existence leak (P2.8).
+    if (!session) {
       throw new NotFoundException({
         code: AuthErrorCode.SessionNotFound,
         message: 'Không tìm thấy phiên đăng nhập.',
       });
     }
+    assertOwned(actor.sub, session.userId, 'phiên đăng nhập');
     await this.revokeById(actor.sub, sessionId);
     return { message: 'Đã thu hồi phiên đăng nhập.' };
   }
@@ -761,6 +768,13 @@ export class AuthService {
   private async createSession(user: User, meta: RequestMeta): Promise<SessionTokens> {
     const sessionId = randomUUID();
     const familyId = randomUUID();
+    // First role ever assigned is the default active role for a new session.
+    const firstRole = await this.prisma.userRole.findFirst({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'asc' },
+      select: { role: true },
+    });
+    const activeRole = firstRole?.role ?? Role.Buyer;
     const refreshToken = this.tokens.createRefreshToken(sessionId, familyId);
     await this.prisma.session.create({
       data: {
@@ -768,6 +782,7 @@ export class AuthService {
         userId: user.id,
         familyId,
         refreshHash: this.tokens.hashToken(refreshToken),
+        activeRole,
         expiresAt: new Date(Date.now() + this.tokens.refreshTtlSeconds() * 1000),
         ip: meta.ip,
         userAgent: meta.userAgent,
@@ -777,6 +792,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       sid: sessionId,
+      role: activeRole,
     });
     return { accessToken, refreshToken };
   }
@@ -877,9 +893,13 @@ export class AuthService {
   }
 
   // True when one of the user's roles is in the 2FA-mandatory set (P2.5).
-  private requiresTwoFactor(user: User): boolean {
-    const roles = Array.isArray(user.roles) ? (user.roles as string[]) : [];
-    return roles.some((role) => (TWO_FACTOR_REQUIRED_ROLES as readonly string[]).includes(role));
+  // Roles live in the user_roles table since P2.9.
+  private async requiresTwoFactor(userId: string): Promise<boolean> {
+    const rows = await this.prisma.userRole.findMany({
+      where: { userId, role: { in: [...TWO_FACTOR_REQUIRED_ROLES] } },
+      select: { id: true },
+    });
+    return rows.length > 0;
   }
 
   private encryptionKey(): string {
