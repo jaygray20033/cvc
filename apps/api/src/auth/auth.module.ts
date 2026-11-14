@@ -9,6 +9,7 @@ import { AuthService } from './auth.service';
 import { BreachCheckService } from './breach-check.service';
 import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
+import { TotpService } from './totp.service';
 
 // Auth feature module. Prisma/Redis/Mail are provided by their global modules.
 // The JWT guard is registered globally: every route requires a token unless
@@ -27,6 +28,7 @@ import { TokenService } from './token.service';
   providers: [
     AuthService,
     TokenService,
+    TotpService,
     PasswordService,
     BreachCheckService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },

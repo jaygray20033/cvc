@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { Secret, TOTP } from 'otpauth';
 import request from 'supertest';
 
 import { AppModule } from '../app.module';
@@ -79,7 +80,9 @@ describeDb('Auth API (integration: P2.1–P2.4)', () => {
   });
 
   beforeEach(async () => {
-    // Reset auth counters so per-IP lockouts never leak between tests.
+    // Reset auth counters AND throttler buckets (storage keys are sha256-hashed
+    // `{<hash>:<name>}:hits|blocked`) so limits never leak between tests.
+    await clearThrottlerBuckets();
     await redis.deleteByPattern('auth:*');
   });
 
@@ -92,6 +95,14 @@ describeDb('Auth API (integration: P2.1–P2.4)', () => {
     await prisma.user.deleteMany({ where: { email: { startsWith: EMAIL_PREFIX } } });
     await prisma.otpRequest.deleteMany({ where: { email: { startsWith: EMAIL_PREFIX } } });
     await redis.deleteByPattern('auth:*');
+    await clearThrottlerBuckets();
+  }
+
+  // Throttler storage keys are `{<sha256>:<name>}:hits` / `:blocked` — no fixed
+  // prefix, so match on the shape instead of a namespace.
+  async function clearThrottlerBuckets(): Promise<void> {
+    await redis.deleteByPattern('*}:hits');
+    await redis.deleteByPattern('*}:blocked');
   }
 
   // Registers and verifies a fresh account, returns login tokens.
@@ -536,6 +547,260 @@ describeDb('Auth API (integration: P2.1–P2.4)', () => {
       const res = await request(app.getHttpServer()).get('/api/v1/auth/sessions');
       expect(res.status).toBe(401);
       expect(res.body.code).toBe('UNAUTHORIZED');
+    });
+  });
+
+  // ------------------------------------------------------------- P2.5 TOTP 2FA
+
+  // Computes the current 6-digit TOTP code the way a real authenticator
+  // app would, from the base32 secret returned by /auth/2fa/setup.
+  function totpCode(secretBase32: string): string {
+    return new TOTP({
+      issuer: 'CVC',
+      label: 'test',
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: Secret.fromBase32(secretBase32),
+    }).generate();
+  }
+
+  async function promoteToRoles(email: string, roles: string[]): Promise<void> {
+    await prisma.user.update({ where: { email }, data: { roles } });
+  }
+
+  // OTP login for users who cannot password-login (no 2FA yet, or challenge
+  // flow active). Returns bootstrap session tokens.
+  async function loginViaOtp(
+    email: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    await request(app.getHttpServer()).post('/api/v1/auth/otp/request').send({ email });
+    const mail = await findMailTo(email, 'otp');
+    const verify = await request(app.getHttpServer())
+      .post('/api/v1/auth/otp/verify')
+      .send({ email, code: extractOtp(mail) });
+    expect(verify.status).toBe(200);
+    expect(verify.body.twoFactorRequired).toBeUndefined();
+    return { accessToken: verify.body.accessToken, refreshToken: verify.body.refreshToken };
+  }
+
+  // Registers, verifies, promotes to the given roles, then OTP-logins.
+  async function createRoleUser(roles: string[]): Promise<{ email: string; accessToken: string }> {
+    const email = makeEmail();
+    const registerRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email, password: PASSWORD });
+    expect(registerRes.status).toBe(200);
+    const mail = await findMailTo(email);
+    const verifyRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/verify-email')
+      .send({ token: extractToken(mail) });
+    expect(verifyRes.status).toBe(200);
+    await promoteToRoles(email, roles);
+    const tokens = await loginViaOtp(email);
+    return { email, accessToken: tokens.accessToken };
+  }
+
+  // Takes a user through setup → enable, returning the TOTP secret and the
+  // recovery codes.
+  async function enable2fa(
+    email: string,
+    accessToken: string,
+  ): Promise<{ secret: string; recoveryCodes: string[] }> {
+    const setup = await request(app.getHttpServer())
+      .post('/api/v1/auth/2fa/setup')
+      .set('Authorization', `Bearer ${accessToken}`);
+    expect(setup.status).toBe(200);
+    expect(setup.body.secret).toMatch(/^[A-Z2-7]+=*$/);
+    expect(setup.body.otpauthUri).toContain('otpauth://totp/');
+
+    const enable = await request(app.getHttpServer())
+      .post('/api/v1/auth/2fa/enable')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ code: totpCode(setup.body.secret) });
+    expect(enable.status).toBe(200);
+    expect(enable.body.recoveryCodes).toHaveLength(10);
+    return { secret: setup.body.secret, recoveryCodes: enable.body.recoveryCodes };
+  }
+
+  describe('P2.5 TOTP 2FA', () => {
+    it('admin without 2FA is blocked from password login but can OTP-login to bootstrap', async () => {
+      const { email } = await createRoleUser(['admin']);
+
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: PASSWORD });
+      expect(login.status).toBe(403);
+      expect(login.body.code).toBe('AUTH_2FA_REQUIRED');
+    });
+
+    it('full lifecycle: enable → password login challenges → TOTP verify → session', async () => {
+      const { email, accessToken } = await createRoleUser(['admin']);
+      const { secret } = await enable2fa(email, accessToken);
+
+      // Password login now returns the two-factor challenge, not 403.
+      const challenge = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: PASSWORD });
+      expect(challenge.status).toBe(200);
+      expect(challenge.body.twoFactorRequired).toBe(true);
+      expect(challenge.body.pendingToken).toBeTruthy();
+      expect(challenge.body.accessToken).toBeUndefined();
+
+      // Wrong code (computed from a different secret) → 400 AUTH_2FA_INVALID.
+      const wrong = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/verify')
+        .send({
+          pendingToken: challenge.body.pendingToken,
+          code: totpCode('JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'),
+        });
+      expect(wrong.status).toBe(400);
+      expect(wrong.body.code).toBe('AUTH_2FA_INVALID');
+
+      // Correct code → real session that works on protected routes.
+      const ok = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/verify')
+        .send({ pendingToken: challenge.body.pendingToken, code: totpCode(secret) });
+      expect(ok.status).toBe(200);
+      expect(ok.body.accessToken).toBeTruthy();
+      const sessions = await request(app.getHttpServer())
+        .get('/api/v1/auth/sessions')
+        .set('Authorization', `Bearer ${ok.body.accessToken}`);
+      expect(sessions.status).toBe(200);
+    });
+
+    it('recovery codes are single-use', async () => {
+      const { email, accessToken } = await createRoleUser(['admin']);
+      const { recoveryCodes } = await enable2fa(email, accessToken);
+
+      // First use works.
+      const challenge = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: PASSWORD });
+      const first = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/verify')
+        .send({ pendingToken: challenge.body.pendingToken, code: recoveryCodes[0] });
+      expect(first.status).toBe(200);
+
+      // Same code again fails; another code from the set works once.
+      const challenge2 = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: PASSWORD });
+      const reuse = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/verify')
+        .send({ pendingToken: challenge2.body.pendingToken, code: recoveryCodes[0] });
+      expect(reuse.status).toBe(400);
+      expect(reuse.body.code).toBe('AUTH_2FA_INVALID');
+      const second = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/verify')
+        .send({ pendingToken: challenge2.body.pendingToken, code: recoveryCodes[1] });
+      expect(second.status).toBe(200);
+    });
+
+    it('expired or garbage pendingToken is rejected', async () => {
+      const { email, accessToken } = await createRoleUser(['admin']);
+      await enable2fa(email, accessToken);
+      const user = await prisma.user.findUnique({ where: { email } });
+      const userId = user!.id;
+
+      const garbage = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/verify')
+        .send({ pendingToken: 'not-a-real-pending-token-value-123456', code: '123456' });
+      expect(garbage.status).toBe(400);
+      expect(garbage.body.code).toBe('AUTH_TOKEN_INVALID');
+
+      const expiredToken = tokens.createMfaToken(userId, '1s');
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const expired = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/verify')
+        .send({ pendingToken: expiredToken, code: '123456' });
+      expect(expired.status).toBe(400);
+      expect(expired.body.code).toBe('AUTH_TOKEN_EXPIRED');
+    });
+
+    it('disable requires the correct password and removes recovery codes', async () => {
+      const email = makeEmail();
+      const { accessToken } = await registerAndLogin(email); // buyer: no 2FA mandate
+      await enable2fa(email, accessToken);
+
+      const wrong = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/disable')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ password: 'Wrong-Password-1!' });
+      expect(wrong.status).toBe(401);
+
+      const ok = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/disable')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ password: PASSWORD });
+      expect(ok.status).toBe(200);
+
+      const user = await prisma.user.findUnique({ where: { email } });
+      expect(user!.totpEnabledAt).toBeNull();
+      expect(user!.totpSecret).toBeNull();
+      expect(await prisma.recoveryCode.count({ where: { userId: user!.id } })).toBe(0);
+    });
+
+    it('setup is rejected when 2FA is already enabled; enable rejects bad/second codes', async () => {
+      const { email, accessToken } = await createRoleUser(['admin']);
+      await enable2fa(email, accessToken);
+
+      const setupAgain = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/setup')
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(setupAgain.status).toBe(409);
+      expect(setupAgain.body.code).toBe('AUTH_2FA_ALREADY_ENABLED');
+
+      const enableAgain = await request(app.getHttpServer())
+        .post('/api/v1/auth/2fa/enable')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ code: '123456' });
+      expect(enableAgain.status).toBe(409);
+      expect(enableAgain.body.code).toBe('AUTH_2FA_ALREADY_ENABLED');
+    });
+
+    it('non-2FA buyer password login is unaffected (no challenge)', async () => {
+      const email = makeEmail();
+      await registerAndLogin(email);
+      const second = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: PASSWORD });
+      expect(second.status).toBe(200);
+      expect(second.body.twoFactorRequired).toBeUndefined();
+      expect(second.body.accessToken).toBeTruthy();
+      expect(second.body.user.email).toBe(email);
+    });
+  });
+
+  // ------------------------------------------------------------ P2.6 rate limit
+
+  describe('P2.6 rate limiting', () => {
+    it('login returns 429 with Retry-After and code RATE_LIMITED past the limit', async () => {
+      const email = makeEmail();
+      const { accessToken } = await registerAndLogin(email); // counts as attempt #1
+      expect(accessToken).toBeTruthy();
+
+      // auth-login limit is 15/min: attempts #2..#15 must all succeed.
+      for (let i = 0; i < 14; i += 1) {
+        const res = await request(app.getHttpServer())
+          .post('/api/v1/auth/login')
+          .send({ email, password: PASSWORD });
+        expect(res.status).toBe(200);
+      }
+
+      const throttled = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: PASSWORD });
+      expect(throttled.status).toBe(429);
+      expect(throttled.headers['retry-after']).toBeDefined();
+      expect(throttled.body.code).toBe('RATE_LIMITED');
+    }, 30_000);
+
+    it('health probes are not throttled', async () => {
+      for (let i = 0; i < 20; i += 1) {
+        const res = await request(app.getHttpServer()).get('/health');
+        expect(res.status).toBe(200);
+      }
     });
   });
 });

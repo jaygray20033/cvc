@@ -7,6 +7,8 @@ import { JwtService } from '@nestjs/jwt';
 
 import { parseTtlToSeconds } from '../common/utils/ttl';
 
+const AUTH_MFA_TTL = '5m';
+
 export interface AccessPayload {
   sub: string;
   email: string;
@@ -17,6 +19,11 @@ export interface RefreshPayload {
   sid: string;
   fam: string;
   jti: string;
+}
+
+export interface MfaPayload {
+  sub: string;
+  typ: 'mfa';
 }
 
 // Signs/verifies JWTs and hashes tokens for storage. Access tokens are short
@@ -46,6 +53,23 @@ export class TokenService {
     return this.jwt.verify<RefreshPayload>(token, {
       secret: this.config.get<string>('jwt.refreshSecret'),
     });
+  }
+
+  // Short-lived token issued after the password step when TOTP is enabled;
+  // exchanged for a session at POST /auth/2fa/verify (P2.5).
+  createMfaToken(userId: string, expiresIn: string = AUTH_MFA_TTL): string {
+    return this.jwt.sign({ sub: userId, typ: 'mfa' } satisfies MfaPayload, {
+      secret: this.config.get<string>('jwt.accessSecret'),
+      expiresIn,
+    });
+  }
+
+  verifyMfaToken(token: string): MfaPayload {
+    const payload = this.jwt.verify<MfaPayload>(token, {
+      secret: this.config.get<string>('jwt.accessSecret'),
+    });
+    if (payload.typ !== 'mfa') throw new Error('Not an MFA token.');
+    return payload;
   }
 
   hashToken(token: string): string {

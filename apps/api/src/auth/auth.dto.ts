@@ -59,6 +59,19 @@ export const logoutSchema = z.object({
   refreshToken: z.string().min(20).max(4096).optional(),
 });
 
+export const totpEnableSchema = z.object({
+  code: z.string().regex(/^[0-9]{6}$/, 'Mã gồm 6 chữ số.'),
+});
+
+export const totpDisableSchema = z.object({
+  password: z.string().min(1).max(64),
+});
+
+export const totpVerifySchema = z.object({
+  pendingToken: z.string().min(20).max(4096),
+  code: z.string().min(4).max(32), // 6-digit TOTP or a recovery code (has dash)
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
@@ -69,6 +82,9 @@ export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
+export type TotpEnableInput = z.infer<typeof totpEnableSchema>;
+export type TotpDisableInput = z.infer<typeof totpDisableSchema>;
+export type TotpVerifyInput = z.infer<typeof totpVerifySchema>;
 
 export class RegisterDto {
   static schema = registerSchema;
@@ -124,4 +140,20 @@ export class RefreshDto {
 export class LogoutDto {
   static schema = logoutSchema;
   @ApiProperty({ required: false }) refreshToken?: string;
+}
+
+export class TotpEnableDto {
+  static schema = totpEnableSchema;
+  @ApiProperty({ example: '123456' }) code!: string;
+}
+
+export class TotpDisableDto {
+  static schema = totpDisableSchema;
+  @ApiProperty() password!: string;
+}
+
+export class TotpVerifyDto {
+  static schema = totpVerifySchema;
+  @ApiProperty() pendingToken!: string;
+  @ApiProperty({ example: '123456' }) code!: string;
 }

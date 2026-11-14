@@ -48,14 +48,36 @@ model User {
   phone           String?     @unique @db.VarChar(20)
   passwordHash    String?     @db.VarChar(255)
   status          UserStatus  @default(PENDING_VERIFICATION)
+  // Array of role strings (P2.7 replaces this with a proper UserRole table).
+  // e.g. ["buyer", "admin"]; default buyer.
+  roles           Json        @default("[\"buyer\"]")
+  // TOTP 2FA (P2.5). Secret is AES-256-GCM encrypted (ENCRYPTION_KEY);
+  // totpSecret set but totpEnabledAt null = setup in progress.
+  totpSecret      String?     @db.VarChar(255)
+  totpEnabledAt   DateTime?
   lastLoginAt     DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
   sessions           Session[]
   verificationTokens VerificationToken[]
+  recoveryCodes      RecoveryCode[]
 
   @@map("users")
+}
+
+// One-time backup codes for TOTP login (P2.5). Only SHA-256 hashes stored,
+// each code can be used exactly once.
+model RecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String    @unique @db.VarChar(64)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("recovery_codes")
 }
 
 // One-time tokens for email verification and password reset.

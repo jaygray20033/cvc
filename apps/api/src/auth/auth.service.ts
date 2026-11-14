@@ -26,9 +26,15 @@ import {
   verifyEmailHtml,
   verifyEmailText,
 } from '../common/mail/mail.templates';
+import { decryptAesGcm, encryptAesGcm } from '../common/utils/encryption';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { AUTH_LIMITS, AuthErrorCode, type RequestMeta } from './auth.constants';
+import {
+  AUTH_LIMITS,
+  AuthErrorCode,
+  type RequestMeta,
+  TWO_FACTOR_REQUIRED_ROLES,
+} from './auth.constants';
 import type {
   ChangePasswordInput,
   ForgotPasswordInput,
@@ -38,15 +44,28 @@ import type {
   OtpVerifyInput,
   RegisterInput,
   ResetPasswordInput,
+  TotpDisableInput,
+  TotpEnableInput,
+  TotpVerifyInput,
   VerifyEmailInput,
 } from './auth.dto';
 import { PasswordService } from './password.service';
 import { type AccessPayload, type RefreshPayload, TokenService } from './token.service';
+import { TotpService } from './totp.service';
 
 interface SessionTokens {
   accessToken: string;
   refreshToken: string;
 }
+
+// Returned by login/otpVerify when TOTP 2FA is enabled: the client must POST
+// /auth/2fa/verify with a TOTP or recovery code to obtain a real session.
+interface TwoFactorChallenge {
+  twoFactorRequired: true;
+  pendingToken: string;
+}
+
+type LoginResult = (SessionTokens & { user: PublicUser }) | TwoFactorChallenge;
 
 interface PublicUser {
   id: string;
@@ -65,6 +84,7 @@ export class AuthService {
     private readonly mail: MailService,
     private readonly tokens: TokenService,
     private readonly passwords: PasswordService,
+    private readonly totp: TotpService,
     private readonly config: ConfigService,
   ) {}
 
@@ -135,7 +155,7 @@ export class AuthService {
 
   // ------------------------------------------------------------------- login
 
-  async login(input: LoginInput, meta: RequestMeta): Promise<SessionTokens & { user: PublicUser }> {
+  async login(input: LoginInput, meta: RequestMeta): Promise<LoginResult> {
     await this.throwIfLocked(`auth:login:fail:email:${input.email}`, 'tài khoản');
     await this.throwIfLocked(`auth:login:fail:ip:${meta.ip ?? 'unknown'}`, 'IP');
 
@@ -162,6 +182,19 @@ export class AuthService {
       throw new ForbiddenException({
         code: AuthErrorCode.EmailNotVerified,
         message: 'Email chưa được xác minh. Vui lòng kiểm tra hộp thư để xác minh tài khoản.',
+      });
+    }
+
+    // TOTP 2FA (P2.5): an enabled user gets a short-lived challenge token;
+    // privileged roles must enable 2FA before password login works at all.
+    if (user.totpEnabledAt) {
+      return { twoFactorRequired: true, pendingToken: this.tokens.createMfaToken(user.id) };
+    }
+    if (this.requiresTwoFactor(user)) {
+      throw new ForbiddenException({
+        code: AuthErrorCode.TwoFactorRequired,
+        message:
+          'Tài khoản này bắt buộc bật xác thực hai lớp (2FA). Vui lòng đăng nhập bằng OTP qua email để thiết lập 2FA trước.',
       });
     }
 
@@ -227,10 +260,7 @@ export class AuthService {
     return { message: genericMessage };
   }
 
-  async otpVerify(
-    input: OtpVerifyInput,
-    meta: RequestMeta,
-  ): Promise<SessionTokens & { user: PublicUser }> {
+  async otpVerify(input: OtpVerifyInput, meta: RequestMeta): Promise<LoginResult> {
     const row = await this.prisma.otpRequest.findFirst({
       where: { email: input.email, consumedAt: null },
       orderBy: { createdAt: 'desc' },
@@ -286,8 +316,188 @@ export class AuthService {
       },
     });
 
+    // TOTP 2FA (P2.5): OTP login still ends at the challenge when 2FA is
+    // enabled. Required roles without TOTP may pass here — this is the
+    // bootstrap path that lets admins enable 2FA in the first place.
+    if (updated.totpEnabledAt) {
+      return { twoFactorRequired: true, pendingToken: this.tokens.createMfaToken(updated.id) };
+    }
+
     const session = await this.createSession(updated, meta);
     return { ...session, user: toPublicUser(updated) };
+  }
+
+  // ------------------------------------------------------------- 2FA (P2.5)
+
+  async setup2fa(actor: AccessPayload): Promise<{ secret: string; otpauthUri: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: actor.sub } });
+    if (!user) {
+      throw new UnauthorizedException({
+        code: AuthErrorCode.InvalidCredentials,
+        message: 'Tài khoản không tồn tại.',
+      });
+    }
+    if (user.totpEnabledAt) {
+      throw new ConflictException({
+        code: AuthErrorCode.TwoFactorAlreadyEnabled,
+        message: '2FA đã được bật trên tài khoản này. Hãy tắt 2FA trước khi cấu hình lại.',
+      });
+    }
+
+    // The secret is only stored AES-256-GCM encrypted; returned once in
+    // plaintext so the client can scan the otpauth:// QR code.
+    const secret = this.totp.generateSecretBase32();
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { totpSecret: encryptAesGcm(secret, this.encryptionKey()) },
+    });
+    return { secret, otpauthUri: this.totp.otpauthUri(user.email, secret) };
+  }
+
+  async enable2fa(
+    actor: AccessPayload,
+    input: TotpEnableInput,
+  ): Promise<{ message: string; recoveryCodes: string[] }> {
+    const user = await this.prisma.user.findUnique({ where: { id: actor.sub } });
+    if (!user) {
+      throw new UnauthorizedException({
+        code: AuthErrorCode.InvalidCredentials,
+        message: 'Tài khoản không tồn tại.',
+      });
+    }
+    if (user.totpEnabledAt) {
+      throw new ConflictException({
+        code: AuthErrorCode.TwoFactorAlreadyEnabled,
+        message: '2FA đã được bật trên tài khoản này.',
+      });
+    }
+    if (!user.totpSecret) {
+      throw new BadRequestException({
+        code: AuthErrorCode.TwoFactorInvalid,
+        message: 'Chưa thiết lập 2FA. Vui lòng gọi POST /auth/2fa/setup trước.',
+      });
+    }
+
+    const secret = decryptAesGcm(user.totpSecret, this.encryptionKey());
+    if (!this.totp.verify(user.email, secret, input.code)) {
+      throw new BadRequestException({
+        code: AuthErrorCode.TwoFactorInvalid,
+        message: 'Mã xác thực không đúng. Vui lòng thử lại.',
+      });
+    }
+
+    // Shown exactly once. Only SHA-256 hashes (of the dash-less code) persist.
+    const recoveryCodes = Array.from({ length: AUTH_LIMITS.recoveryCodeCount }, () =>
+      randomBytes(5).toString('hex'),
+    ).map((code) => `${code.slice(0, 5)}-${code.slice(5)}`);
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { totpEnabledAt: new Date() },
+      }),
+      this.prisma.recoveryCode.createMany({
+        data: recoveryCodes.map((code) => ({
+          userId: user.id,
+          codeHash: this.tokens.hashToken(code.replace('-', '')),
+        })),
+      }),
+    ]);
+    return {
+      message: 'Đã bật 2FA. Hãy lưu các mã dự phòng ở nơi an toàn — chúng chỉ hiển thị một lần.',
+      recoveryCodes,
+    };
+  }
+
+  async disable2fa(actor: AccessPayload, input: TotpDisableInput): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: actor.sub } });
+    if (!user) {
+      throw new UnauthorizedException({
+        code: AuthErrorCode.InvalidCredentials,
+        message: 'Tài khoản không tồn tại.',
+      });
+    }
+    if (!user.totpEnabledAt) {
+      throw new BadRequestException({
+        code: AuthErrorCode.TwoFactorInvalid,
+        message: '2FA chưa được bật trên tài khoản này.',
+      });
+    }
+    if (
+      !user.passwordHash ||
+      !(await this.passwords.verifyPassword(user.passwordHash, input.password))
+    ) {
+      throw new UnauthorizedException({
+        code: AuthErrorCode.InvalidCredentials,
+        message: 'Mật khẩu không đúng.',
+      });
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { totpSecret: null, totpEnabledAt: null },
+      }),
+      this.prisma.recoveryCode.deleteMany({ where: { userId: user.id } }),
+    ]);
+    return { message: 'Đã tắt 2FA.' };
+  }
+
+  async verify2fa(
+    input: TotpVerifyInput,
+    meta: RequestMeta,
+  ): Promise<SessionTokens & { user: PublicUser }> {
+    let payload;
+    try {
+      payload = this.tokens.verifyMfaToken(input.pendingToken);
+    } catch (error) {
+      const expired = error instanceof Error && error.name === 'TokenExpiredError';
+      throw new BadRequestException({
+        code: expired ? AuthErrorCode.TokenExpired : AuthErrorCode.TokenInvalid,
+        message: expired
+          ? 'Phiên xác thực 2FA đã hết hạn. Vui lòng đăng nhập lại.'
+          : 'Phiên xác thực 2FA không hợp lệ. Vui lòng đăng nhập lại.',
+      });
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user || !user.totpEnabledAt || !user.totpSecret) {
+      throw new BadRequestException({
+        code: AuthErrorCode.TokenInvalid,
+        message: 'Phiên xác thực 2FA không hợp lệ. Vui lòng đăng nhập lại.',
+      });
+    }
+
+    const secret = decryptAesGcm(user.totpSecret, this.encryptionKey());
+    const isTotpOk = this.totp.verify(user.email, secret, input.code);
+    if (!isTotpOk) {
+      // Not a TOTP code: fall back to a single-use recovery code match.
+      const row = await this.prisma.recoveryCode.findUnique({
+        where: { codeHash: this.tokens.hashToken(input.code.replace('-', '').toLowerCase()) },
+      });
+      if (!row || row.userId !== user.id || row.usedAt) {
+        throw new BadRequestException({
+          code: AuthErrorCode.TwoFactorInvalid,
+          message: 'Mã xác thực không đúng.',
+        });
+      }
+      await this.prisma.recoveryCode.update({
+        where: { id: row.id },
+        data: { usedAt: new Date() },
+      });
+    }
+
+    if (user.status === 'DISABLED') {
+      throw new ForbiddenException({
+        code: AuthErrorCode.AccountDisabled,
+        message: 'Tài khoản đã bị khóa.',
+      });
+    }
+    const session = await this.createSession(user, meta);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+    return { ...session, user: toPublicUser(user) };
   }
 
   // ------------------------------------------------- password flows (P2.3)
@@ -664,6 +874,16 @@ export class AuthService {
       where: { id: sessionId, userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  }
+
+  // True when one of the user's roles is in the 2FA-mandatory set (P2.5).
+  private requiresTwoFactor(user: User): boolean {
+    const roles = Array.isArray(user.roles) ? (user.roles as string[]) : [];
+    return roles.some((role) => (TWO_FACTOR_REQUIRED_ROLES as readonly string[]).includes(role));
+  }
+
+  private encryptionKey(): string {
+    return this.config.get<string>('encryption.key', '');
   }
 
   private appUrl(): string {

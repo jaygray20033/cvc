@@ -17,7 +17,23 @@ export const AUTH_LIMITS = {
   resetTtlMinutes: 60,
   forgotSendsPerEmail: 3,
   forgotSendsPerEmailWindowSec: 15 * 60,
+  /** TOTP 2FA (P2.5). */
+  totpDigits: 6,
+  totpPeriodSec: 30,
+  totpWindow: 1,
+  totpChallengeTtl: '5m', // pendingToken lifetime after password step
+  recoveryCodeCount: 10,
+  /** Throttler limits (P2.6), ttl in ms. throttleDefault is the module-level
+   * limit; the others are applied per-route via @Throttle({ default: {...} }).
+   * Chat/request endpoints get their own overrides later (P4.7, P4.13). */
+  throttleDefault: { limit: 100, ttl: 60_000 },
+  throttleLogin: { limit: 15, ttl: 60_000 },
+  throttleOtp: { limit: 8, ttl: 60_000 },
+  throttleForgot: { limit: 6, ttl: 60_000 },
 } as const;
+
+/** Roles that must have 2FA enabled (P2.5). Enforced at password login. */
+export const TWO_FACTOR_REQUIRED_ROLES = ['admin', 'sales', 'inspector'] as const;
 
 export const AuthErrorCode = {
   InvalidCredentials: 'AUTH_INVALID_CREDENTIALS',
@@ -34,6 +50,9 @@ export const AuthErrorCode = {
   NoPassword: 'AUTH_NO_PASSWORD',
   EmailTaken: 'AUTH_EMAIL_TAKEN',
   SessionNotFound: 'AUTH_SESSION_NOT_FOUND',
+  TwoFactorRequired: 'AUTH_2FA_REQUIRED',
+  TwoFactorInvalid: 'AUTH_2FA_INVALID',
+  TwoFactorAlreadyEnabled: 'AUTH_2FA_ALREADY_ENABLED',
 } as const;
 
 export type AuthErrorCode = (typeof AuthErrorCode)[keyof typeof AuthErrorCode];

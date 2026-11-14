@@ -55,7 +55,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 |---|---|---|
 | 0 | 1 / 13 | |
 | 1 | 0 / 15 | |
-| 2 | 4 / 23 | P2.1–P2.4 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên) |
+| 2 | 6 / 23 | P2.1–P2.6 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit) |
 | 3 | 0 / 12 | |
 | 4A | 0 / 22 | |
 | 4B | 0 / 6 | |
@@ -324,13 +324,13 @@ Quy ước chung cho mọi API: prefix `/api/v1`; phân trang `?page=&pageSize=`
 - Việc làm: access token ngắn (15 phút), refresh token xoay vòng lưu băm SHA-256 trong bảng `Session` (thiết bị, IP, UA, lastUsedAt); phát hiện dùng lại refresh token cũ → thu hồi cả chuỗi (familyId); `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/sessions`, `DELETE /auth/sessions/:id`.
 - DoD: test xoay vòng, tái sử dụng token cũ, thu hồi phiên. Xong (2026-11-13).
 
-### [ ] P2.5 2FA (TOTP)
+## [x] P2.5 2FA (TOTP)
 - Việc làm: bật/tắt TOTP, mã dự phòng, xác thực khi đăng nhập; **bắt buộc** cho `admin`, `sales`, `inspector`; tùy chọn cho người dùng khác.
-- DoD: admin không đăng nhập được nếu chưa bật 2FA; test mã sai/hết hạn.
+- DoD: admin không đăng nhập được nếu chưa bật 2FA; test mã sai/hết hạn. Xong (2026-11-14) — secret mã hóa AES-256-GCM, 10 mã dự phòng hash SHA-256 dùng một lần, login bằng mật khẩu trả `pendingToken` 5 phút rồi `POST /auth/2fa/verify`; admin/sales/inspector chưa bật 2FA chỉ vào được bằng OTP qua email (đường bootstrap).
 
-### [ ] P2.6 Rate limit
+## [x] P2.6 Rate limit
 - Việc làm: `@nestjs/throttler` + Redis; giới hạn riêng cho login, OTP, quên mật khẩu, tạo yêu cầu, gửi chat; phản hồi 429 có `Retry-After`.
-- DoD: test vượt giới hạn.
+- DoD: test vượt giới hạn. Xong (2026-11-14) — 100/phút mặc định, login 15/phút, OTP 8/phút, quên mật khẩu 6/phút; 429 kèm `Retry-After` + code `RATE_LIMITED`; limit tạo yêu cầu/gửi chat sẽ thêm ở P4.7/P4.13.
 
 ## 2.2 Phân quyền
 
