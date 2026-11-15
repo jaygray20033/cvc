@@ -56,6 +56,11 @@ const envSchema = z.object({
   // only for cross-account duplicate detection; rotate = re-hash stored rows.
   KYC_SLA_HOURS: z.coerce.number().int().positive().default(48),
   KYC_CCCD_HASH_SALT: z.string().min(16).default('dev-kyc-cccd-salt-change-me-32'),
+
+  // ClamAV TCP daemon for the file service (P2.17). Empty host disables the
+  // remote scan and falls back to local EICAR signature checking in dev.
+  CLAMAV_HOST: z.string().optional().default(''),
+  CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
 });
 
 export type Env = z.infer<typeof envSchema>;

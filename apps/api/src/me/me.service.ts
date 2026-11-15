@@ -2,6 +2,7 @@ import type { Role } from '@cvc/shared';
 import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 
 import { TokenService } from '../auth/token.service';
+import { AuditService } from '../common/audit/audit.service';
 import type { AccessPayload } from '../common/decorators/current-user.decorator';
 import { ErrorCode } from '../common/errors/error-codes';
 import { PrismaService } from '../prisma/prisma.service';
@@ -16,6 +17,7 @@ export class MeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
+    private readonly audit: AuditService,
   ) {}
 
   // GET /me: who am I, which roles do I hold, which one is active now.
@@ -88,7 +90,17 @@ export class MeService {
         where: { id: session.id },
         data: { activeRole: role },
       });
-      // Audit (no sensitive data). Kept in logs until P2.16 adds AuditLog.
+      // Audit (P2.16 AuditLog) + a pino line for dev visibility.
+      await this.audit.log({
+        actorId: user.sub,
+        actorRole: session.activeRole,
+        action: 'user.role_switched',
+        entityType: 'user',
+        entityId: user.sub,
+        before: { activeRole: session.activeRole },
+        after: { activeRole: role },
+        requestId: user.sid,
+      });
       this.logger.warn(
         {
           event: 'role_switched',

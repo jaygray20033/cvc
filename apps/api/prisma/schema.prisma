@@ -67,6 +67,10 @@ model User {
   bankAccounts   BankAccount[]
   kycSubmissions KycSubmission[]
 
+  // Notification engine (P2.18).
+  notifications          Notification[]
+  notificationPreference NotificationPreference?
+
   @@map("users")
 }
 
@@ -335,4 +339,106 @@ model KycEvent {
 
   @@index([submissionId, createdAt])
   @@map("kyc_events")
+}
+
+// ---------------------------------------------------------------------------
+// Shared services (P2.16–P2.18). AuditLog is append-only: no update/delete
+// API anywhere, integrity guarded by a per-row hash chain. FileObject uses
+// ownerType/ownerId (loose reference, no FK) so the same table serves every
+// future owner kind (order, campaign, deal room...). Notifications are
+// in-app rows; email delivery is decided by NotificationPreference unless
+// the event is mandatory (security/money).
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?  @db.VarChar(64)
+  actorRole  String?  @db.VarChar(32)
+  action     String   @db.VarChar(100)
+  entityType String?  @db.VarChar(64)
+  entityId   String?  @db.VarChar(64)
+  before     Json?
+  after      Json?
+  ip         String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(512)
+  requestId  String?  @db.VarChar(64)
+  // Hash chain (tamper detection): hash = sha256(prevHash + row payload).
+  prevHash   String   @db.VarChar(64)
+  hash       String   @unique @db.VarChar(64)
+  createdAt  DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+enum FileStatus {
+  UPLOADING
+  READY
+  REJECTED
+}
+
+enum ScanStatus {
+  NOT_SCANNED
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+}
+
+model FileObject {
+  id           String     @id @default(cuid())
+  ownerType    String     @db.VarChar(32)
+  ownerId      String     @db.VarChar(64)
+  bucket       String     @db.VarChar(100)
+  s3Key        String     @db.VarChar(255)
+  purpose      String?    @db.VarChar(64)
+  declaredMime String     @db.VarChar(100)
+  // Real MIME from magic bytes; mismatch with declaredMime -> rejected.
+  detectedMime String?    @db.VarChar(100)
+  sizeBytes    Int
+  status       FileStatus @default(UPLOADING)
+  // Download requires READY + CLEAN; PENDING blocks download (P2.17 DoD).
+  scanStatus   ScanStatus @default(NOT_SCANNED)
+  scanAt       DateTime?
+  thumbnailKey String?    @db.VarChar(255)
+  sha256       String?    @db.VarChar(64)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([ownerType, ownerId, createdAt])
+  @@index([sha256])
+  @@map("files")
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event     String    @db.VarChar(64)
+  title     String    @db.VarChar(200)
+  body      String    @db.VarChar(500)
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Channel opt-outs; mandatory events (security/money) ignore these.
+  email     Boolean  @default(true)
+  inApp     Boolean  @default(true)
+  sms       Boolean  @default(false)
+  zns       Boolean  @default(false)
+  push      Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  @@map("notification_preferences")
 }

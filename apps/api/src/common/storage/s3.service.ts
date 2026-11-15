@@ -1,4 +1,5 @@
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -64,6 +65,26 @@ export class S3Service {
     } catch {
       return false;
     }
+  }
+
+  // Whole-object buffer, capped by a byte limit (magic bytes / hashing).
+  async getObjectBytes(bucket: string, key: string, maxBytes = 512): Promise<Buffer> {
+    const res = await this.client.send(
+      new GetObjectCommand({ Bucket: bucket, Key: key, Range: `bytes=0-${maxBytes - 1}` }),
+    );
+    if (!res.Body) throw new Error('empty S3 object body');
+    return Buffer.from(await res.Body.transformToByteArray());
+  }
+
+  async deleteObject(bucket: string, key: string): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  }
+
+  // Server-side upload (thumbnails), client uploads use presigned PUT.
+  async uploadObject(bucket: string, key: string, body: Buffer, mime: string): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: mime }),
+    );
   }
 
   // Read an object into memory (P2.14: hash the bytes for duplicate-image

@@ -4,10 +4,9 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import type { KycStatus } from '@prisma/client';
 
+import { AuditService } from '../common/audit/audit.service';
 import type { AccessPayload } from '../common/decorators/current-user.decorator';
 import { ErrorCode } from '../common/errors/error-codes';
-import { MailService } from '../common/mail/mail.service';
-import { kycStatusHtml, kycStatusText } from '../common/mail/mail.templates';
 import { assertOwned } from '../common/policies/ownership';
 import { S3Service } from '../common/storage/s3.service';
 import {
@@ -16,6 +15,7 @@ import {
   hashCccdNumber,
   hashImageBytes,
 } from '../common/utils/validators';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { KycChecklist, PresignUploadInput } from './kyc.dto';
 
@@ -35,7 +35,8 @@ export class KycService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly s3: S3Service,
-    private readonly mail: MailService,
+    private readonly notifications: NotificationsService,
+    private readonly audit: AuditService,
     config: ConfigService,
   ) {
     this.encryptionKey = config.get<string>('encryption.key', '');
@@ -307,6 +308,14 @@ export class KycService {
       },
     });
     await this.addEvent(submission.id, 'APPROVED', admin.sub, admin.role);
+    await this.audit.log({
+      actorId: admin.sub,
+      actorRole: admin.role,
+      action: 'kyc.approved',
+      entityType: 'kyc_submission',
+      entityId: submission.id,
+      after: { status: 'APPROVED', ownerId: submission.userId },
+    });
     await this.notifyUser(submission.userId, 'APPROVED');
     return updated;
   }
@@ -346,6 +355,14 @@ export class KycService {
       },
     });
     await this.addEvent(submission.id, status, admin.sub, admin.role, reason);
+    await this.audit.log({
+      actorId: admin.sub,
+      actorRole: admin.role,
+      action: status === 'REJECTED' ? 'kyc.rejected' : 'kyc.need_more',
+      entityType: 'kyc_submission',
+      entityId: submission.id,
+      after: { status, ownerId: submission.userId, reason },
+    });
     await this.notifyUser(submission.userId, status, reason);
     return updated;
   }
@@ -475,19 +492,13 @@ export class KycService {
     return { url, expiresIn: 300 };
   }
 
+  // Notify via the notification engine (P2.18): in-app row + email per user
+  // preferences; failure must not fail the review transaction.
   private async notifyUser(userId: string, status: SubmissionStatus, reason?: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return;
     try {
-      await this.mail.send({
-        to: user.email,
-        subject: `CVC — Cập nhật hồ sơ KYC (${status})`,
-        html: kycStatusHtml(status, reason),
-        text: kycStatusText(status, reason),
-      });
+      await this.notifications.emit('kyc.status_changed', userId, { status, reason });
     } catch {
-      // Notification failure must not fail the review transaction.
-      this.logger.error({ event: 'kyc_notify_failed', userId, status }, 'kyc email failed');
+      this.logger.error({ event: 'kyc_notify_failed', userId, status }, 'kyc notify failed');
     }
   }
 

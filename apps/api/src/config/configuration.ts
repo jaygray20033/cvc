@@ -42,4 +42,5 @@ export default (env: Env) => ({
     slaHours: env.KYC_SLA_HOURS,
     cccdHashSalt: env.KYC_CCCD_HASH_SALT,
   },
+  clamav: { host: env.CLAMAV_HOST, port: env.CLAMAV_PORT },
 });

@@ -55,7 +55,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 |---|---|---|
 | 0 | 1 / 13 | |
 | 1 | 0 / 15 | |
-| 2 | 15 / 23 | P2.1–P2.15 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC, KYC ảnh + chống trùng + gate @RequireKyc) |
+| 2 | 18 / 23 | P2.1–P2.18 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC, KYC ảnh + chống trùng + gate @RequireKyc; dùng chung: AuditLog bất biến + hash chuỗi, File service presigned + magic bytes + ClamAV + thumbnail, Notification engine in-app/email + preference) |
 | 3 | 0 / 12 | |
 | 4A | 0 / 22 | |
 | 4B | 0 / 6 | |
@@ -378,18 +378,18 @@ Quy ước chung cho mọi API: prefix `/api/v1`; phân trang `?page=&pageSize=`
 
 ## 2.4 Dịch vụ dùng chung
 
-### [ ] P2.16 Audit log bất biến
+### [x] P2.16 Audit log bất biến
 - Việc làm: bảng `AuditLog` (actor, role, action, entityType, entityId, before, after, ip, userAgent, requestId, createdAt); ghi tự động qua interceptor cho thao tác ghi quan trọng + ghi tay cho nghiệp vụ tiền; **không có API sửa/xóa**; (tùy chọn) hash chuỗi (mỗi dòng chứa hash dòng trước) để phát hiện can thiệp.
 - API admin: `GET /admin/audit-logs` có lọc.
-- DoD: mọi thao tác tiền, hợp đồng, phân quyền, tồn kho đều có log (test kiểm tra).
+- DoD: mọi thao tác tiền, hợp đồng, phân quyền, tồn kho đều có log (test kiểm tra). Xong (2026-11-15) — `AuditLog` append-only + hash chuỗi SHA-256 (canonical stringify, sort key vì MySQL JSON reorder; serialize write bằng mutex để tránh fork chuỗi); `AuditInterceptor` global tự log mọi POST/PUT/PATCH/DELETE; log tay cho `user.role_switched`, `kyc.approved/rejected/need_more`, `file.downloaded`; `GET /admin/audit-logs` (lọc actor/entity/action/thời gian) + `GET /admin/audit-logs/verify` kiểm tra chuỗi hash; không có route sửa/xóa.
 
-### [ ] P2.17 File service
+### [x] P2.17 File service
 - Việc làm: upload qua presigned URL (client → S3/SeaweedFS), `POST /files/presign` trả URL + `fileId`, `POST /files/:id/confirm`; kiểm tra MIME thật (magic bytes), giới hạn dung lượng theo loại; quét virus (ClamAV) bất đồng bộ, file chưa quét xong không cho tải; sinh thumbnail ảnh; quyền truy cập theo đối tượng sở hữu (`ownerType`, `ownerId`); tải xuống qua URL ký có hạn.
-- DoD: test từ chối file sai loại/quá lớn, file độc hại; không truy cập được file của người khác.
+- DoD: test từ chối file sai loại/quá lớn, file độc hại; không truy cập được file của người khác. Xong (2026-11-15) — 2 bước presign/confirm với bucket riêng tư; magic bytes (JPEG/PNG/WebP/PDF) khớp `declaredMime` nếu không → xóa object + REJECTED; limit 5MB ảnh / 10MB PDF; scan bất đồng bộ (ClamAV INSTREAM qua TCP, không có host → fallback chữ ký EICAR local), `PENDING/INFECTED` chặn tải; thumbnail WebP 320px (sharp); chỉ chủ sở hữu + admin; tải qua presigned GET 5 phút + audit.
 
-### [ ] P2.18 Notification engine
+### [x] P2.18 Notification engine
 - Việc làm: bảng `Notification`, `NotificationPreference`; sự kiện miền → `NotificationService.emit(event, data)` → render template (đa ngôn ngữ) → gửi kênh in-app/email/SMS/ZNS/push theo cấu hình; trạng thái đã đọc; API `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all`.
-- DoD: sự kiện mẫu đi đủ kênh ở dev (mailpit); người dùng tắt kênh thì không gửi (trừ thông báo bắt buộc: bảo mật, tiền).
+- DoD: sự kiện mẫu đi đủ kênh ở dev (mailpit); người dùng tắt kênh thì không gửi (trừ thông báo bắt buộc: bảo mật, tiền). Xong (2026-11-15) — registry template `kyc.status_changed` + `security.password_changed` (bắt buộc, bỏ qua opt-out), event lạ → fallback generic; emit ghi row in-app + email qua MailService, sms/zns/push là stub (chờ P2.19/P5); KYC review chuyển sang engine này; API `GET /notifications` (+unreadCount), read/read-all, `GET/PUT /me/notification-preferences`; test mailpit kiểm chứng opt-out và event bắt buộc.
 
 ### [ ] P2.19 Hàng đợi job
 - Việc làm: BullMQ queues: `notifications`, `payments`, `reconcile`, `campaign`, `claims`, `files`; retry có backoff, dead-letter; bảng/trang theo dõi job (bull-board, chỉ admin); job định kỳ (cron) có khóa phân tán để chỉ chạy một bản.
@@ -417,7 +417,7 @@ Quy ước chung cho mọi API: prefix `/api/v1`; phân trang `?page=&pageSize=`
 - [ ] Đăng ký → xác minh → đăng nhập → KYC → vào đúng vai trò.
 - [ ] Test phân quyền (ma trận + IDOR) xanh.
 - [ ] Audit log, idempotency, rate limit hoạt động.
-- [ ] File upload an toàn, thông báo đa kênh chạy ở dev.
+- [x] File upload an toàn, thông báo đa kênh chạy ở dev.
 
 ---
 

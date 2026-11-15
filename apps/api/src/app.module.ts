@@ -1,7 +1,7 @@
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 
@@ -9,13 +9,17 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AUTH_LIMITS } from './auth/auth.constants';
 import { AuthModule } from './auth/auth.module';
+import { AuditInterceptor } from './common/audit/audit.interceptor';
+import { AuditModule } from './common/audit/audit.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { RetryAfterThrottlerGuard } from './common/guards/throttler.guard';
 import { buildPinoOptions } from './common/logger/logger.config';
 import { MailModule } from './common/mail/mail.module';
 import { validateEnv } from './config/env.validation';
+import { FilesModule } from './files/files.module';
 import { KycModule } from './kyc/kyc.module';
 import { MeModule } from './me/me.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 
@@ -49,15 +53,20 @@ import { RedisModule } from './redis/redis.module';
     PrismaModule,
     RedisModule,
     MailModule,
+    AuditModule,
     AuthModule,
     MeModule,
     KycModule,
+    FilesModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: RetryAfterThrottlerGuard },
+    // Automatic audit trail for write requests (P2.16).
+    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
 })
 export class AppModule {}
