@@ -30,6 +30,21 @@
 | `GET /me/kyc`, `POST /me/kyc/documents/presign`, `POST /me/kyc/documents/:id/confirm`, `GET /me/kyc/documents/:id/download` (P2.12)                             | ✅ (chỉ tài liệu của mình)            | ✅ (mình)                                                      | ✅ (mình) | ✅ (mình) | ✅ (mình) | ✅ (mình) | ✅ (mình) |
 | `GET /admin/kyc`, `POST /admin/kyc/:id/approve                                                                                                                  | reject                                | request-more`, `GET /admin/kyc/documents/:id/download` (P2.13) | –         | –         | –         | –         | –         | –   | ✅ + nhóm `admin_ops`/`admin_super` |
 
+## Cổng KYC (P2.15) — `@RequireKyc(level)`
+
+`KycGuard` (đăng ký APP_GUARD, chạy sau `JwtAuthGuard` + `RolesGuard`) chặn hành
+động khi tài khoản chưa xác minh. Route không khai báo `@RequireKyc` thì guard
+bỏ qua. Mặc định từ chối, trả 403 `KYC_REQUIRED` kèm lý do tiếng Việt (frontend
+hiển thị trực tiếp). Các endpoint P2.14 mới: `GET /me/kyc/sla`, `PUT /me/kyc/cccd`
+(chủ hồ sơ), `GET /admin/kyc/:id` (chi tiết + giải mã số CCCD, log mỗi lần xem).
+
+| Level   | Điều kiện                                        | Áp dụng (dự kiến, wire ở P4/P5)            |
+| ------- | ------------------------------------------------ | ------------------------------------------ |
+| `BASIC` | có ≥1 `KycSubmission` trạng thái `APPROVED`      | tham gia lô, đăng ký nhận bán, ký hợp đồng |
+| `FULL`  | `BASIC` + có tài khoản ngân hàng (`BankAccount`) | rút tiền / thao tác tiền ra                |
+
+> Mapping endpoint ↔ mức là tạm thời, chờ nghiệp vụ duyệt; đổi ở decorator, không đổi trong guard.
+
 ## Module sau (điền khi hiện thực — P3+)
 
 | Nhóm endpoint                | buyer | participant | retailer | supplier | sales | inspector | admin |

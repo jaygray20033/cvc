@@ -65,4 +65,12 @@ export class S3Service {
       return false;
     }
   }
+
+  // Read an object into memory (P2.14: hash the bytes for duplicate-image
+  // detection). KYC files are capped at 5MB so a full read is safe.
+  async getObjectBuffer(bucket: string, key: string): Promise<Buffer> {
+    const res = await this.client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    const body = await res.Body?.transformToByteArray();
+    return Buffer.from(body ?? new Uint8Array());
+  }
 }

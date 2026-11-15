@@ -55,7 +55,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 |---|---|---|
 | 0 | 1 / 13 | |
 | 1 | 0 / 15 | |
-| 2 | 13 / 23 | P2.1–P2.13 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC) |
+| 2 | 15 / 23 | P2.1–P2.15 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC, KYC ảnh + chống trùng + gate @RequireKyc) |
 | 3 | 0 / 12 | |
 | 4A | 0 / 22 | |
 | 4B | 0 / 6 | |
@@ -367,14 +367,14 @@ Quy ước chung cho mọi API: prefix `/api/v1`; phân trang `?page=&pageSize=`
 - API admin: `GET /admin/kyc?status=`, `POST /admin/kyc/:id/approve|reject|request-more`.
 - DoD: test chuyển trạng thái; audit log đủ. Xong (2026-11-14) — `kyc_submissions` (PENDING/NEED_MORE/APPROVED/REJECTED, reviewedBy/reviewedAt/reviewNote), reject/request-more bắt buộc lý do (Zod), hàng đợi admin lọc theo status; `kyc_events` = lịch sử duyệt (SUBMITTED/DOCUMENT_UPLOADED/APPROVED/NEED_MORE/REJECTED/DOCUMENT_ACCESSED); email thông báo qua MailService (mailpit dev); NEED_MORE nộp lại tự mở về PENDING; test đủ luồng + nhóm admin 403.
 
-### [ ] P2.14 Xác minh danh tính bằng ảnh, duyệt tay (không dùng eKYC tự động)
+### [x] P2.14 Xác minh danh tính bằng ảnh, duyệt tay (không dùng eKYC tự động)
 - Việc làm: người dùng tải **CCCD mặt trước, mặt sau và ảnh chân dung cầm CCCD** (giao diện có hướng dẫn chụp rõ, chụp trực tiếp bằng camera điện thoại hoặc chọn ảnh); admin KYC xem ảnh phóng to và **so khớp bằng mắt** theo checklist (ảnh rõ, thông tin khớp hồ sơ, khuôn mặt khớp, giấy tờ còn hạn, tên chủ tài khoản ngân hàng khớp); từ chối phải có lý do; yêu cầu bổ sung thì người dùng gửi lại; SLA duyệt hiển thị (cấu hình); phát hiện **ảnh/số CCCD trùng** giữa nhiều tài khoản (hash ảnh + băm có muối số CCCD) và cảnh báo; ghi log mỗi lần admin xem ảnh.
 - Giữ sẵn interface `EkycProvider` (chưa implement) để sau này cắm eKYC tự động (Backlog).
-- DoD: luồng nộp → duyệt/từ chối/bổ sung hoàn chỉnh; test cảnh báo CCCD trùng; ảnh chỉ người có quyền xem được.
+- DoD: luồng nộp → duyệt/từ chối/bổ sung hoàn chỉnh; test cảnh báo CCCD trùng; ảnh chỉ người có quyền xem được. Xong backend (2026-11-15) — thêm loại tài liệu `PORTRAIT`; `confirm` băm SHA-256 byte ảnh (`KycDocument.imageHash`) và flag trùng ảnh khác tài khoản; `PUT /me/kyc/cccd` lưu số CCCD (AES-256-GCM `cccdNumberEnc`) + băm có muối HMAC-SHA256 (`cccdHash`, index) để phát hiện số CCCD trùng giữa các tài khoản, flag `duplicateFlag` trên cả hai hồ sơ + event `DUPLICATE_FLAGGED`; approve bắt buộc checklist 5 mục (Zod refine, lưu `reviewChecklist`), reject/request-more giữ lý do bắt buộc; `GET /admin/kyc/:id` trả chi tiết + giải mã CCCD cho admin_ops/super, mỗi lần xem ghi event `CCCD_ACCESSED` (log xem ảnh đã có từ P2.12 qua `DOCUMENT_ACCESSED`); SLA `GET /me/kyc/sla` từ env `KYC_SLA_HOURS` (default 48); giữ interface `EkycProvider` (`src/kyc/ekyc-provider.ts`, chưa implement, `EKYC_PROVIDER` token). `GET /me/kyc` và hàng đợi admin không lộ `cccdNumberEnc`/`cccdHash`/`s3Key`. Test: unit `kyc.guard.spec.ts`, integration `kyc-photo-gate.integration.spec.ts` (PORTRAIT + trùng ảnh + trùng CCCD + checklist + ẩn CCCD). **Còn lại (frontend track F):** màn chụp CCCD/portrait bằng camera + UI phóng to theo checklist — cần app shell (web hiện mới là scaffold).
 
-### [ ] P2.15 Chặn thao tác khi chưa KYC
+### [x] P2.15 Chặn thao tác khi chưa KYC
 - Việc làm: guard `@RequireKyc(level)`; áp cho tham gia lô, đăng ký nhận bán, rút tiền, ký hợp đồng; thông báo rõ lý do ở frontend.
-- DoD: test từng endpoint bị chặn đúng.
+- DoD: test từng endpoint bị chặn đúng. Xong nền tảng (2026-11-15) — decorator `@RequireKyc(level)` (`common/decorators/require-kyc.decorator.ts`) + `KycGuard` (APP_GUARD sau `RolesGuard`): `BASIC` = có ≥1 `KycSubmission` APPROVED, `FULL` = BASIC + có `BankAccount`; từ chối trả 403 mã `KYC_REQUIRED` kèm lý do tiếng Việt + `details.slaHours`; route không khai báo thì bỏ qua. Test guard chặn/cho đúng trên route probe (BASIC trước/sau duyệt, FULL cần TK ngân hàng) + unit `kyc.guard.spec.ts`. **Wire vào endpoint thật (tham gia lô, nhận bán, rút tiền, ký hợp đồng) khi P4/P5 ra đời** — mapping mức↔endpoint là tạm, chờ nghiệp vụ duyệt. Thông báo frontend thuộc track F.
 
 ## 2.4 Dịch vụ dùng chung
 

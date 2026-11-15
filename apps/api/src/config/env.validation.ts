@@ -50,6 +50,12 @@ const envSchema = z.object({
   TRANSLATION_PROVIDER_KEY: z.string().optional().default(''),
   INVOICE_PROVIDER_KEY: z.string().optional().default(''),
   EKYC_PROVIDER_KEY: z.string().optional().default(''),
+
+  // KYC (P2.14). slaHours: review SLA shown to the user (moves to SystemSetting
+  // in P2.22). cccdHashSalt: salt for the salted HMAC of the CCCD number, used
+  // only for cross-account duplicate detection; rotate = re-hash stored rows.
+  KYC_SLA_HOURS: z.coerce.number().int().positive().default(48),
+  KYC_CCCD_HASH_SALT: z.string().min(16).default('dev-kyc-cccd-salt-change-me-32'),
 });
 
 export type Env = z.infer<typeof envSchema>;

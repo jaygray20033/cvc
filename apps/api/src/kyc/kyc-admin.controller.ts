@@ -6,10 +6,10 @@ import { AdminGroups } from '../common/decorators/admin-groups.decorator';
 import { type AccessPayload, CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
-import { ListKycQueryDto, ReviewNoteDto } from './kyc.dto';
+import { ApproveDto, ListKycQueryDto, ReviewNoteDto } from './kyc.dto';
 import { KycService } from './kyc.service';
 
-// Admin KYC review queue (P2.13). KYC review belongs to admin_ops and
+// Admin KYC review queue (P2.13/P2.14). KYC review belongs to admin_ops and
 // admin_super (admin_finance/support cannot review KYC).
 @ApiTags('admin')
 @Controller('admin/kyc')
@@ -28,9 +28,13 @@ export class KycAdminController {
 
   @Post(':id/approve')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Duyệt hồ sơ KYC' })
-  approve(@CurrentUser() admin: AccessPayload, @Param('id') id: string) {
-    return this.kyc.approve(admin, id);
+  @ApiOperation({ summary: 'Duyệt hồ sơ KYC theo checklist đối chiếu bằng mắt' })
+  approve(
+    @CurrentUser() admin: AccessPayload,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ApproveDto.schema)) dto: ApproveDto,
+  ) {
+    return this.kyc.approve(admin, id, dto.checklist);
   }
 
   @Post(':id/reject')
@@ -59,5 +63,11 @@ export class KycAdminController {
   @ApiOperation({ summary: 'Link tải giấy tờ KYC của người dùng (hạn 5 phút, log truy cập)' })
   downloadDoc(@CurrentUser() admin: AccessPayload, @Param('id') id: string) {
     return this.kyc.getDocumentDownloadLinkForAdmin(admin, id);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Chi tiết hồ sơ: ảnh + số CCCD giải mã + lịch sử (log mỗi lần xem)' })
+  detail(@CurrentUser() admin: AccessPayload, @Param('id') id: string) {
+    return this.kyc.getSubmissionDetailForAdmin(admin, id);
   }
 }

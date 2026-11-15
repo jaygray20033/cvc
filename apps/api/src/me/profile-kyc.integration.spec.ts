@@ -522,7 +522,16 @@ describeDb('Profile + KYC API (integration: P2.11–P2.13)', () => {
       // Approve -> APPROVED + email.
       const approve = await request(app.getHttpServer())
         .post(`/api/v1/admin/kyc/${submission2}/approve`)
-        .set(auth(adminToken));
+        .set(auth(adminToken))
+        .send({
+          checklist: {
+            imageClear: true,
+            infoMatch: true,
+            faceMatch: true,
+            docValid: true,
+            bankNameMatch: true,
+          },
+        });
       expect(approve.status).toBe(200);
       expect(approve.body.status).toBe('APPROVED');
       expect(approve.body.reviewedById).toBeDefined();
@@ -532,7 +541,16 @@ describeDb('Profile + KYC API (integration: P2.11–P2.13)', () => {
       // Double approve is rejected.
       const again = await request(app.getHttpServer())
         .post(`/api/v1/admin/kyc/${submission2}/approve`)
-        .set(auth(adminToken));
+        .set(auth(adminToken))
+        .send({
+          checklist: {
+            imageClear: true,
+            infoMatch: true,
+            faceMatch: true,
+            docValid: true,
+            bankNameMatch: true,
+          },
+        });
       expect(again.status).toBe(400);
 
       // Review history has the full trail (P2.13 DoD).

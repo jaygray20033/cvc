@@ -1,10 +1,10 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Put } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { type AccessPayload, CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
-import { PresignUploadDto } from './kyc.dto';
+import { CccdSubmitDto, PresignUploadDto } from './kyc.dto';
 import { KycService } from './kyc.service';
 
 @ApiTags('kyc')
@@ -17,6 +17,24 @@ export class KycController {
   @ApiOperation({ summary: 'Hồ sơ KYC của tôi + trạng thái từng lần nộp' })
   listMine(@CurrentUser() user: AccessPayload) {
     return this.kyc.listMySubmissions(user);
+  }
+
+  @Roles()
+  @Get('sla')
+  @ApiOperation({ summary: 'SLA duyệt KYC (giờ) — cấu hình hệ thống hiển thị cho người dùng' })
+  getSla() {
+    return this.kyc.getSla();
+  }
+
+  @Roles()
+  @Put('cccd')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Nộp số CCCD để đối chiếu danh tính (mã hóa + băm có muối)' })
+  submitCccd(
+    @CurrentUser() user: AccessPayload,
+    @Body(new ZodValidationPipe(CccdSubmitDto.schema)) dto: CccdSubmitDto,
+  ) {
+    return this.kyc.submitCccd(user, dto.cccdNumber);
   }
 
   @Roles()

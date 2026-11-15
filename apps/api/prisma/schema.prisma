@@ -175,9 +175,11 @@ enum OrgType {
 }
 
 // KYC document types (P2.12). CCCD = citizen id card.
+// PORTRAIT = selfie holding the CCCD (P2.14, required for manual identity match).
 enum KycDocType {
   CCCD_FRONT
   CCCD_BACK
+  PORTRAIT
   BUSINESS_REG
   AUTHORIZATION
 }
@@ -204,6 +206,10 @@ enum KycEventType {
   NEED_MORE
   REJECTED
   DOCUMENT_ACCESSED
+  // P2.14: a duplicate image/CCCD was detected across accounts, and each time
+  // an admin reveals the raw CCCD number.
+  DUPLICATE_FLAGGED
+  CCCD_ACCESSED
 }
 
 model Profile {
@@ -273,6 +279,15 @@ model KycSubmission {
   reviewedAt   DateTime?
   // Required reason for reject/need_more; also the user-visible note.
   reviewNote   String?      @db.VarChar(500)
+  // P2.14 manual identity match. CCCD number is AES-256-GCM encrypted for admin
+  // viewing (cccdNumberEnc); cccdHash is a salted HMAC-SHA256 used only to
+  // detect the same number reused across accounts (never the number itself).
+  cccdNumberEnc String?     @db.VarChar(255)
+  cccdHash      String?     @db.VarChar(64)
+  // Set when a duplicate image or CCCD number links this account to another.
+  duplicateFlag Boolean     @default(false)
+  // Admin's eye-match checklist recorded on approve (5 booleans), see kyc.dto.
+  reviewChecklist Json?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
@@ -281,6 +296,7 @@ model KycSubmission {
 
   @@index([userId, status])
   @@index([status, createdAt])
+  @@index([cccdHash])
   @@map("kyc_submissions")
 }
 
@@ -295,10 +311,14 @@ model KycDocument {
   s3Key         String       @db.VarChar(255)
   bucket        String       @db.VarChar(100)
   uploadStatus  UploadStatus @default(UPLOADING)
+  // P2.14: SHA-256 of the stored bytes, computed on confirm. Same hash across
+  // different accounts => the same photo was reused (duplicate warning).
+  imageHash     String?      @db.VarChar(64)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
   @@index([submissionId])
+  @@index([imageHash])
   @@map("kyc_documents")
 }
 

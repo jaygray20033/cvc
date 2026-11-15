@@ -34,3 +34,15 @@ export enum Currency {
   VND = 'VND',
   CNY = 'CNY',
 }
+
+// KYC gating levels (P2.15). Applied with @RequireKyc(level) on endpoints that
+// must be blocked until the account is verified. Ordered: FULL implies BASIC.
+// - BASIC: personal identity verified — has an APPROVED KYC submission.
+//   Used for: join a lot (mua hộ), register to sell (bán giùm), sign contract.
+// - FULL: BASIC + a bank account on file (needed before money can move out).
+//   Used for: withdraw/payout (rút tiền).
+// The exact endpoint->level mapping is provisional pending business sign-off;
+// adjust the decorator argument, not the guard.
+export const KYC_LEVELS = ['BASIC', 'FULL'] as const;
+
+export type KycLevel = (typeof KYC_LEVELS)[number];

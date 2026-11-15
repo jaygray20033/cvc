@@ -1,8 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { z } from 'zod';
 
-// KYC document types (P2.12).
-export const KYC_DOC_TYPES = ['CCCD_FRONT', 'CCCD_BACK', 'BUSINESS_REG', 'AUTHORIZATION'] as const;
+import { CCCD_RE } from '../common/utils/validators';
+
+// KYC document types (P2.12/P2.14). PORTRAIT = selfie holding the CCCD.
+export const KYC_DOC_TYPES = [
+  'CCCD_FRONT',
+  'CCCD_BACK',
+  'PORTRAIT',
+  'BUSINESS_REG',
+  'AUTHORIZATION',
+] as const;
 export type KycDocTypeValue = (typeof KYC_DOC_TYPES)[number];
 
 // Allowed file types for KYC documents. Images or signed PDF, max 5MB.
@@ -48,4 +56,56 @@ export type ReviewNoteInput = z.infer<typeof reviewNoteSchema>;
 export class ReviewNoteDto {
   static schema = reviewNoteSchema;
   @ApiProperty({ example: 'Ảnh CCCD không rõ mặt' }) reason!: string;
+}
+
+// PUT /me/kyc/cccd — the user's CCCD number for identity matching (P2.14).
+// Stored encrypted + as a salted hash; never returned in full to the client.
+export const cccdSubmitSchema = z.object({
+  cccdNumber: z.string().regex(CCCD_RE, 'Số CCCD phải gồm 12 chữ số'),
+});
+export type CccdSubmitInput = z.infer<typeof cccdSubmitSchema>;
+
+export class CccdSubmitDto {
+  static schema = cccdSubmitSchema;
+  @ApiProperty({ example: '012345678901' }) cccdNumber!: string;
+}
+
+// POST /admin/kyc/:id/approve — the admin's eye-match checklist (P2.14).
+// All five items must be confirmed before an approval goes through.
+export const KYC_CHECKLIST_ITEMS = [
+  'imageClear', // ảnh rõ nét
+  'infoMatch', // thông tin khớp hồ sơ
+  'faceMatch', // khuôn mặt khớp
+  'docValid', // giấy tờ còn hạn
+  'bankNameMatch', // tên chủ TK ngân hàng khớp
+] as const;
+
+export const approveSchema = z.object({
+  checklist: z
+    .object({
+      imageClear: z.boolean(),
+      infoMatch: z.boolean(),
+      faceMatch: z.boolean(),
+      docValid: z.boolean(),
+      bankNameMatch: z.boolean(),
+    })
+    .refine(
+      (c) => KYC_CHECKLIST_ITEMS.every((item) => c[item] === true),
+      'Phải xác nhận đủ mọi mục trong checklist trước khi duyệt.',
+    ),
+});
+export type KycChecklist = z.infer<typeof approveSchema>['checklist'];
+
+export class ApproveDto {
+  static schema = approveSchema;
+  @ApiProperty({
+    example: {
+      imageClear: true,
+      infoMatch: true,
+      faceMatch: true,
+      docValid: true,
+      bankNameMatch: true,
+    },
+  })
+  checklist!: KycChecklist;
 }

@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { KycGuard } from '../common/guards/kyc.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -32,9 +33,11 @@ import { TotpService } from './totp.service';
     TotpService,
     PasswordService,
     BreachCheckService,
-    // Order matters: JWT first (fills request.user), then RBAC (P2.7).
+    // Order matters: JWT first (fills request.user), then RBAC (P2.7), then
+    // the KYC gate (P2.15).
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: KycGuard },
   ],
 })
 export class AuthModule {}

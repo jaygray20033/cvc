@@ -38,4 +38,8 @@ export default (env: Env) => ({
     // Breach check (HIBP) defaults on in production only.
     breachCheck: env.PASSWORD_BREACH_CHECK ?? env.NODE_ENV === 'production',
   },
+  kyc: {
+    slaHours: env.KYC_SLA_HOURS,
+    cccdHashSalt: env.KYC_CCCD_HASH_SALT,
+  },
 });

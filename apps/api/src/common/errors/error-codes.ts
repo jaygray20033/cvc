@@ -9,6 +9,8 @@ export const ErrorCode = {
   Conflict: 'CONFLICT',
   UniqueConstraint: 'UNIQUE_CONSTRAINT',
   ForeignKeyConstraint: 'FOREIGN_KEY_CONSTRAINT',
+  // P2.15: KYC gate — account not verified enough for this action.
+  KycRequired: 'KYC_REQUIRED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
