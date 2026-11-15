@@ -61,6 +61,12 @@ model User {
   recoveryCodes      RecoveryCode[]
   userRoles          UserRole[]
 
+  // Profile domain (P2.11) + KYC (P2.12/P2.13).
+  profile        Profile?
+  addresses      Address[]
+  bankAccounts   BankAccount[]
+  kycSubmissions KycSubmission[]
+
   @@map("users")
 }
 
@@ -151,4 +157,162 @@ model OtpRequest {
 
   @@index([email, createdAt])
   @@map("otp_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Profile + KYC domain (P2.11–P2.13). Bank account numbers are AES-256-GCM
+// encrypted at rest (accountNoEnc) with a masked display value (accountNoLast4)
+// and a SHA-256 hash (accountNoHash) for uniqueness. KYC files live in the
+// private S3 bucket; only the owner and admin KYC can download them (short
+// lived presigned URLs, access logged via KycEvent).
+// ---------------------------------------------------------------------------
+
+// Business type of the profile (P2.11).
+enum OrgType {
+  PERSONAL
+  BUSINESS_HOUSEHOLD
+  COMPANY
+}
+
+// KYC document types (P2.12). CCCD = citizen id card.
+enum KycDocType {
+  CCCD_FRONT
+  CCCD_BACK
+  BUSINESS_REG
+  AUTHORIZATION
+}
+
+// Lifecycle of one review round (P2.13).
+enum KycStatus {
+  PENDING
+  NEED_MORE
+  APPROVED
+  REJECTED
+}
+
+// Upload is two-phase: presigned PUT (UPLOADING) then client confirm (READY).
+enum UploadStatus {
+  UPLOADING
+  READY
+}
+
+// Who did what on a submission — the review history (P2.13).
+enum KycEventType {
+  SUBMITTED
+  DOCUMENT_UPLOADED
+  APPROVED
+  NEED_MORE
+  REJECTED
+  DOCUMENT_ACCESSED
+}
+
+model Profile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgType            OrgType  @default(PERSONAL)
+  // Person display name; for COMPANY this is the company name.
+  displayName        String   @db.VarChar(191)
+  // MST (tax id) — validated, unique when present.
+  taxId              String?  @db.VarChar(14)
+  // Business registration number (hộ kinh doanh/doanh nghiệp).
+  businessRegNo      String?  @db.VarChar(20)
+  representativeName String?  @db.VarChar(191)
+  address            String?  @db.VarChar(255)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("profiles")
+}
+
+model Address {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label        String?  @db.VarChar(50)
+  receiverName String   @db.VarChar(191)
+  phone        String   @db.VarChar(20)
+  city         String   @db.VarChar(100)
+  district     String   @db.VarChar(100)
+  ward         String   @db.VarChar(100)
+  line         String   @db.VarChar(255)
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+model BankAccount {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankName       String   @db.VarChar(100)
+  holderName     String   @db.VarChar(191)
+  // AES-256-GCM encrypted account number; never selected into API responses.
+  accountNoEnc   String   @db.VarChar(255)
+  // Display-only: last 4 digits, e.g. "1234" -> "****1234".
+  accountNoLast4 String   @db.VarChar(4)
+  // SHA-256 of the number: uniqueness check without decryption.
+  accountNoHash  String   @unique @db.VarChar(64)
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
+  @@map("bank_accounts")
+}
+
+model KycSubmission {
+  id           String       @id @default(cuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status       KycStatus    @default(PENDING)
+  reviewedById String?
+  reviewedAt   DateTime?
+  // Required reason for reject/need_more; also the user-visible note.
+  reviewNote   String?      @db.VarChar(500)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  documents KycDocument[]
+  events    KycEvent[]
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@map("kyc_submissions")
+}
+
+model KycDocument {
+  id            String       @id @default(cuid())
+  submissionId  String
+  submission    KycSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  type          KycDocType
+  mime          String       @db.VarChar(100)
+  sizeBytes     Int
+  // Private bucket object key, e.g. kyc/{userId}/{docId}. No PII in the key.
+  s3Key         String       @db.VarChar(255)
+  bucket        String       @db.VarChar(100)
+  uploadStatus  UploadStatus @default(UPLOADING)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([submissionId])
+  @@map("kyc_documents")
+}
+
+// Append-only review history + access log (P2.12 download logging, P2.13).
+model KycEvent {
+  id           String       @id @default(cuid())
+  submissionId String
+  submission   KycSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  type         KycEventType
+  actorId      String?      @db.VarChar(64)
+  actorRole    String?      @db.VarChar(32)
+  note         String?      @db.VarChar(500)
+  createdAt    DateTime     @default(now())
+
+  @@index([submissionId, createdAt])
+  @@map("kyc_events")
 }

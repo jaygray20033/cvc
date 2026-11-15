@@ -5,9 +5,12 @@ import { JwtModule } from '@nestjs/jwt';
 import { TokenService } from '../auth/token.service';
 import { MeController } from './me.controller';
 import { MeService } from './me.service';
+import { ProfileController } from './profile.controller';
+import { ProfileService } from './profile.service';
 
-// Multi-role endpoints (P2.9). Prisma is global; TokenService needs JwtModule
-// (same secret/TTL setup as the auth module).
+// Multi-role endpoints (P2.9) + profile/addresses/bank accounts (P2.11).
+// Prisma and MailService are global; TokenService needs JwtModule (same
+// secret/TTL setup as the auth module).
 @Module({
   imports: [
     JwtModule.registerAsync({
@@ -18,7 +21,7 @@ import { MeService } from './me.service';
       }),
     }),
   ],
-  controllers: [MeController],
-  providers: [MeService, TokenService],
+  controllers: [MeController, ProfileController],
+  providers: [MeService, ProfileService, TokenService],
 })
 export class MeModule {}

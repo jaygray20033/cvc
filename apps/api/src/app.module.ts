@@ -14,6 +14,7 @@ import { RetryAfterThrottlerGuard } from './common/guards/throttler.guard';
 import { buildPinoOptions } from './common/logger/logger.config';
 import { MailModule } from './common/mail/mail.module';
 import { validateEnv } from './config/env.validation';
+import { KycModule } from './kyc/kyc.module';
 import { MeModule } from './me/me.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
@@ -50,6 +51,7 @@ import { RedisModule } from './redis/redis.module';
     MailModule,
     AuthModule,
     MeModule,
+    KycModule,
   ],
   controllers: [AppController],
   providers: [

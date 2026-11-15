@@ -59,3 +59,38 @@ export function passwordChangedHtml(changedAt: string): string {
 export function passwordChangedText(changedAt: string): string {
   return `Mật khẩu tài khoản CVC của bạn vừa được thay đổi lúc ${changedAt}. Tất cả phiên đăng nhập đã bị đăng xuất. Nếu không phải bạn thay đổi, hãy đặt lại mật khẩu ngay và liên hệ bộ phận hỗ trợ.`;
 }
+
+// KYC review result emails (P2.13). status: PENDING/NEED_MORE/APPROVED/REJECTED.
+export function kycStatusHtml(status: string, reason?: string): string {
+  const lines: Record<string, string[]> = {
+    APPROVED: [
+      '<p>Xin chào,</p>',
+      '<p>Hồ sơ KYC của bạn đã được <strong>duyệt</strong>. Bạn có thể tiếp tục sử dụng đầy đủ tính năng của CVC.</p>',
+    ],
+    NEED_MORE: [
+      '<p>Xin chào,</p>',
+      `<p>CVC cần bạn bổ sung thêm giấy tờ: <strong>${reason ?? ''}</strong></p>`,
+      '<p>Vui lòng đăng nhập và tải lại giấy tờ theo yêu cầu.</p>',
+    ],
+    REJECTED: [
+      '<p>Xin chào,</p>',
+      `<p>Hồ sơ KYC của bạn <strong>chưa được duyệt</strong>. Lý do: <strong>${reason ?? ''}</strong></p>`,
+      '<p>Bạn có thể nộp lại hồ sơ sau khi hoàn chỉnh.</p>',
+    ],
+    PENDING: [
+      '<p>Xin chào,</p>',
+      '<p>Bạn vừa nộp hồ sơ KYC. CVC sẽ xem xét và phản hồi trong thời gian sớm nhất.</p>',
+    ],
+  };
+  return [...(lines[status] ?? lines.PENDING), '<p>Trân trọng,<br/>CVC</p>'].join('\n');
+}
+
+export function kycStatusText(status: string, reason?: string): string {
+  const messages: Record<string, string> = {
+    APPROVED: 'Hồ sơ KYC của bạn đã được duyệt.',
+    NEED_MORE: `CVC cần bạn bổ sung thêm giấy tờ: ${reason ?? ''}.`,
+    REJECTED: `Hồ sơ KYC của bạn chưa được duyệt. Lý do: ${reason ?? ''}. Bạn có thể nộp lại hồ sơ sau khi hoàn chỉnh.`,
+    PENDING: 'Bạn vừa nộp hồ sơ KYC. CVC sẽ xem xét và phản hồi sớm nhất.',
+  };
+  return messages[status] ?? messages.PENDING;
+}

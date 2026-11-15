@@ -55,7 +55,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 |---|---|---|
 | 0 | 1 / 13 | |
 | 1 | 0 / 15 | |
-| 2 | 10 / 23 | P2.1–P2.10 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me) |
+| 2 | 13 / 23 | P2.1–P2.13 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC) |
 | 3 | 0 / 12 | |
 | 4A | 0 / 22 | |
 | 4B | 0 / 6 | |
@@ -353,19 +353,19 @@ Quy ước chung cho mọi API: prefix `/api/v1`; phân trang `?page=&pageSize=`
 
 ## 2.3 Hồ sơ và KYC
 
-### [ ] P2.11 Hồ sơ
+### [x] P2.11 Hồ sơ
 - Việc làm: `Organization`/`Profile` (cá nhân, hộ kinh doanh, doanh nghiệp: tên, mã số thuế, ĐKKD, địa chỉ, người đại diện); nhiều địa chỉ giao nhận; `BankAccount` (tên chủ TK phải khớp tên hồ sơ).
 - API: `GET/PUT /me/profile`, `CRUD /me/addresses`, `CRUD /me/bank-accounts`.
-- DoD: validate MST, SĐT, định dạng tài khoản; số tài khoản mã hóa khi lưu, hiển thị che (`****1234`).
+- DoD: validate MST, SĐT, định dạng tài khoản; số tài khoản mã hóa khi lưu, hiển thị che (`****1234`). Xong (2026-11-14) — bảng `profiles` (orgType, MST unique, ĐKKD, người đại diện), `addresses` (isDefault), `bank_accounts` (số TK AES-256-GCM `accountNoEnc` + `accountNoLast4` che + `accountNoHash` SHA-256 unique); validate MST/SĐT/TK regex; tên chủ TK khớp hồ sơ (so normalized bỏ dấu); IDOR → 404.
 
-### [ ] P2.12 Upload giấy tờ
+### [x] P2.12 Upload giấy tờ
 - Việc làm: dùng file service (P2.17) với bucket riêng + mã hóa; loại `KycDocument` (CCCD mặt trước/sau, ĐKKD, giấy ủy quyền); chỉ chủ sở hữu và admin KYC xem.
-- DoD: link tải có thời hạn ngắn; log truy cập.
+- DoD: link tải có thời hạn ngắn; log truy cập. Xong (2026-11-14) — upload 2 bước qua presigned PUT (`POST /me/kyc/documents/presign` → `:id/confirm` kiểm tra object thật sự tồn tại trên S3); bucket riêng tư `cvc-private` (SeaweedFS, P2.17 đầy đủ sẽ thay); link tải presigned GET hạn 5 phút; mỗi lần phát link ghi event `DOCUMENT_ACCESSED`; MIME/dung lượng whitelist (ảnh/PDF ≤5MB); chỉ chủ sở hữu + admin (`admin_ops`/`admin_super`) tải được.
 
-### [ ] P2.13 Duyệt KYC thủ công
+### [x] P2.13 Duyệt KYC thủ công
 - Việc làm: trạng thái `pending | need_more | approved | rejected`, lý do bắt buộc khi từ chối/yêu cầu bổ sung; hàng đợi cho admin; thông báo cho người dùng; lịch sử duyệt.
 - API admin: `GET /admin/kyc?status=`, `POST /admin/kyc/:id/approve|reject|request-more`.
-- DoD: test chuyển trạng thái; audit log đủ.
+- DoD: test chuyển trạng thái; audit log đủ. Xong (2026-11-14) — `kyc_submissions` (PENDING/NEED_MORE/APPROVED/REJECTED, reviewedBy/reviewedAt/reviewNote), reject/request-more bắt buộc lý do (Zod), hàng đợi admin lọc theo status; `kyc_events` = lịch sử duyệt (SUBMITTED/DOCUMENT_UPLOADED/APPROVED/NEED_MORE/REJECTED/DOCUMENT_ACCESSED); email thông báo qua MailService (mailpit dev); NEED_MORE nộp lại tự mở về PENDING; test đủ luồng + nhóm admin 403.
 
 ### [ ] P2.14 Xác minh danh tính bằng ảnh, duyệt tay (không dùng eKYC tự động)
 - Việc làm: người dùng tải **CCCD mặt trước, mặt sau và ảnh chân dung cầm CCCD** (giao diện có hướng dẫn chụp rõ, chụp trực tiếp bằng camera điện thoại hoặc chọn ảnh); admin KYC xem ảnh phóng to và **so khớp bằng mắt** theo checklist (ảnh rõ, thông tin khớp hồ sơ, khuôn mặt khớp, giấy tờ còn hạn, tên chủ tài khoản ngân hàng khớp); từ chối phải có lý do; yêu cầu bổ sung thì người dùng gửi lại; SLA duyệt hiển thị (cấu hình); phát hiện **ảnh/số CCCD trùng** giữa nhiều tài khoản (hash ảnh + băm có muối số CCCD) và cảnh báo; ghi log mỗi lần admin xem ảnh.
