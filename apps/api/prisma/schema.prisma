@@ -15,11 +15,11 @@ datasource db {
 // Replaying the same key must not create a second transaction. expiresAt
 // powers the 24h TTL (P2.21): expired rows are skipped and deletable.
 model IdempotencyKey {
-  key         String    @id @db.VarChar(191)
-  scope       String    @db.VarChar(100)
-  requestHash String    @db.VarChar(64)
+  key         String   @id @db.VarChar(191)
+  scope       String   @db.VarChar(100)
+  requestHash String   @db.VarChar(64)
   response    Json?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
   expiresAt   DateTime
 
   @@index([expiresAt])
@@ -45,24 +45,25 @@ enum TokenType {
 }
 
 model User {
-  id              String      @id @default(cuid())
-  email           String      @unique @db.VarChar(191)
+  id              String     @id @default(cuid())
+  // Nullable email + phone-only signup lands with P4 (phone unique below is
+  // already reserved); every current flow requires email, so the column stays
+  // required until then.
+  email           String     @unique @db.VarChar(191)
   emailVerifiedAt DateTime?
-  phone           String?     @unique @db.VarChar(20)
-  passwordHash    String?     @db.VarChar(255)
-  status          UserStatus  @default(PENDING_VERIFICATION)
-  // TOTP 2FA (P2.5). Secret is AES-256-GCM encrypted (ENCRYPTION_KEY);
-  // totpSecret set but totpEnabledAt null = setup in progress.
-  totpSecret      String?     @db.VarChar(255)
-  totpEnabledAt   DateTime?
+  phone           String?    @unique @db.VarChar(20)
+  passwordHash    String?    @db.VarChar(255)
+  status          UserStatus @default(PENDING_VERIFICATION)
   lastLoginAt     DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
   sessions           Session[]
   verificationTokens VerificationToken[]
   recoveryCodes      RecoveryCode[]
   userRoles          UserRole[]
+  // TOTP 2FA (P2.5, P3.1): secret lives in its own table (AES-256-GCM).
+  totpSecret         TotpSecret?
 
   // Profile domain (P2.11) + KYC (P2.12/P2.13).
   profile        Profile?
@@ -73,6 +74,17 @@ model User {
   // Notification engine (P2.18).
   notifications          Notification[]
   notificationPreference NotificationPreference?
+
+  // Catalog/sourcing (P3.2/P3.3): supplier account links, RFQs, orders.
+  supplierAccounts       SupplierAccount?
+  sourcingRequests       SourcingRequest[]
+  orders                 Order[]
+  organizationsOwned     Organization[]
+  quoteSelectionsDecided QuoteSelection[]
+  claimsFiled            Claim[]
+  claimProposals         ClaimProposal[]
+  claimResolutions       ClaimResolution[]
+  shipmentStopsEntered   ShipmentStop[]
 
   @@map("users")
 }
@@ -111,14 +123,14 @@ model RecoveryCode {
 // One-time tokens for email verification and password reset.
 // Token itself is random 32 bytes hex, only the SHA-256 hash is stored.
 model VerificationToken {
-  id        String     @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      TokenType
-  tokenHash String     @unique @db.VarChar(64)
+  tokenHash String    @unique @db.VarChar(64)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime   @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, type])
   @@map("verification_tokens")
@@ -258,45 +270,53 @@ model Address {
 }
 
 model BankAccount {
-  id             String   @id @default(cuid())
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bankName       String   @db.VarChar(100)
-  holderName     String   @db.VarChar(191)
+  id             String        @id @default(cuid())
+  // Owned by a user (default) or an organization (P3.1); at least one must be
+  // set — enforced in the service layer (MySQL disallows a CHECK constraint
+  // on FK columns that carry referential actions like CASCADE/SET NULL).
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  bankName       String        @db.VarChar(100)
+  holderName     String        @db.VarChar(191)
   // AES-256-GCM encrypted account number; never selected into API responses.
-  accountNoEnc   String   @db.VarChar(255)
+  accountNoEnc   String        @db.VarChar(255)
   // Display-only: last 4 digits, e.g. "1234" -> "****1234".
-  accountNoLast4 String   @db.VarChar(4)
+  accountNoLast4 String        @db.VarChar(4)
   // SHA-256 of the number: uniqueness check without decryption.
-  accountNoHash  String   @unique @db.VarChar(64)
-  isDefault      Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  accountNoHash  String        @unique @db.VarChar(64)
+  isDefault      Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  refunds Refund[]
 
   @@index([userId])
+  @@index([organizationId])
   @@map("bank_accounts")
 }
 
 model KycSubmission {
-  id           String       @id @default(cuid())
-  userId       String
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status       KycStatus    @default(PENDING)
-  reviewedById String?
-  reviewedAt   DateTime?
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          KycStatus @default(PENDING)
+  reviewedById    String?
+  reviewedAt      DateTime?
   // Required reason for reject/need_more; also the user-visible note.
-  reviewNote   String?      @db.VarChar(500)
+  reviewNote      String?   @db.VarChar(500)
   // P2.14 manual identity match. CCCD number is AES-256-GCM encrypted for admin
   // viewing (cccdNumberEnc); cccdHash is a salted HMAC-SHA256 used only to
   // detect the same number reused across accounts (never the number itself).
-  cccdNumberEnc String?     @db.VarChar(255)
-  cccdHash      String?     @db.VarChar(64)
+  cccdNumberEnc   String?   @db.VarChar(255)
+  cccdHash        String?   @db.VarChar(64)
   // Set when a duplicate image or CCCD number links this account to another.
-  duplicateFlag Boolean     @default(false)
+  duplicateFlag   Boolean   @default(false)
   // Admin's eye-match checklist recorded on approve (5 booleans), see kyc.dto.
   reviewChecklist Json?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   documents KycDocument[]
   events    KycEvent[]
@@ -308,21 +328,21 @@ model KycSubmission {
 }
 
 model KycDocument {
-  id            String       @id @default(cuid())
-  submissionId  String
-  submission    KycSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  type          KycDocType
-  mime          String       @db.VarChar(100)
-  sizeBytes     Int
+  id           String        @id @default(cuid())
+  submissionId String
+  submission   KycSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  type         KycDocType
+  mime         String        @db.VarChar(100)
+  sizeBytes    Int
   // Private bucket object key, e.g. kyc/{userId}/{docId}. No PII in the key.
-  s3Key         String       @db.VarChar(255)
-  bucket        String       @db.VarChar(100)
-  uploadStatus  UploadStatus @default(UPLOADING)
+  s3Key        String        @db.VarChar(255)
+  bucket       String        @db.VarChar(100)
+  uploadStatus UploadStatus  @default(UPLOADING)
   // P2.14: SHA-256 of the stored bytes, computed on confirm. Same hash across
   // different accounts => the same photo was reused (duplicate warning).
-  imageHash     String?      @db.VarChar(64)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  imageHash    String?       @db.VarChar(64)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   @@index([submissionId])
   @@index([imageHash])
@@ -331,14 +351,14 @@ model KycDocument {
 
 // Append-only review history + access log (P2.12 download logging, P2.13).
 model KycEvent {
-  id           String       @id @default(cuid())
+  id           String        @id @default(cuid())
   submissionId String
   submission   KycSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   type         KycEventType
-  actorId      String?      @db.VarChar(64)
-  actorRole    String?      @db.VarChar(32)
-  note         String?      @db.VarChar(500)
-  createdAt    DateTime     @default(now())
+  actorId      String?       @db.VarChar(64)
+  actorRole    String?       @db.VarChar(32)
+  note         String?       @db.VarChar(500)
+  createdAt    DateTime      @default(now())
 
   @@index([submissionId, createdAt])
   @@map("kyc_events")
@@ -410,6 +430,13 @@ model FileObject {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
+  // P3.2/P3.3 loose owners keep a hard FK where the reference is first-class.
+  productImages              ProductImage[]
+  partnerBanners             PartnerBanner[]
+  sourcingRequestAttachments SourcingRequestAttachment[]
+  shipments                  Shipment[]
+  returnShipments            ReturnShipment[]
+
   @@index([ownerType, ownerId, createdAt])
   @@index([sha256])
   @@map("files")
@@ -480,4 +507,666 @@ model SearchDocument {
   @@unique([entityType, entityId])
   @@index([entityType, status])
   @@map("search_documents")
+}
+
+// ---------------------------------------------------------------------------
+// P3.1 — Organizations & TOTP
+// ---------------------------------------------------------------------------
+
+// Organization lifecycle (P3.1).
+enum OrgStatus {
+  ACTIVE
+  DISABLED
+}
+
+model Organization {
+  id        String    @id @default(cuid())
+  name      String    @db.VarChar(191)
+  taxId     String?   @db.VarChar(32)
+  contact   String?   @db.VarChar(191)
+  phone     String?   @db.VarChar(20)
+  status    OrgStatus @default(ACTIVE)
+  ownerId   String
+  owner     User      @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  deletedAt DateTime? // soft delete: org data is referenced by orders
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  bankAccounts BankAccount[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@map("organizations")
+}
+
+// TOTP 2FA secret (P3.1): split from users so the encrypted secret is never
+// accidentally selected with the user row.
+model TotpSecret {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // AES-256-GCM encrypted base32 secret (ENCRYPTION_KEY).
+  secretEnc String    @db.VarChar(255)
+  enabledAt DateTime? // null = setup in progress, not yet confirmed
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("totp_secrets")
+}
+
+// ---------------------------------------------------------------------------
+// P3.2 — Catalog & suppliers
+// ---------------------------------------------------------------------------
+
+model Category {
+  id        String     @id @default(cuid())
+  parentId  String?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Category[] @relation("CategoryTree")
+  name      String     @db.VarChar(100)
+  slug      String     @unique @db.VarChar(120)
+  sortIndex Int        @default(0)
+  deletedAt DateTime? // soft delete: products reference categories
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  products Product[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Product {
+  id           String        @id @default(cuid())
+  categoryId   String
+  category     Category      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  // Human-facing SKU, format "CVC-001" (P3.2).
+  sku          String        @unique @db.VarChar(32)
+  name         String        @db.VarChar(200)
+  spec         String?       @db.VarChar(500)
+  moq          Int           @default(1)
+  leadTimeDays Int?
+  // Internal reference price; never returned by public APIs (P3.2).
+  priceRef     Decimal?      @db.Decimal(18, 2)
+  currency     String        @default("VND") @db.VarChar(3)
+  status       ProductStatus @default(DRAFT)
+  publishedAt  DateTime?
+  deletedAt    DateTime? // soft delete: orders reference products
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  images           ProductImage[]
+  specs            ProductSpec[]
+  supplierProducts SupplierProduct[]
+
+  @@index([categoryId, status])
+  @@index([status])
+  @@map("products")
+}
+
+model ProductImage {
+  id           String      @id @default(cuid())
+  productId    String
+  product      Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fileObjectId String?
+  fileObject   FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  alt          String?     @db.VarChar(200)
+  sortIndex    Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+model ProductSpec {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  key       String   @db.VarChar(100)
+  value     String   @db.VarChar(255)
+  sortIndex Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, key])
+  @@map("product_specs")
+}
+
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model Supplier {
+  id            String         @id @default(cuid())
+  name          String         @db.VarChar(191)
+  province      String?        @db.VarChar(100)
+  country       String         @default("CN") @db.VarChar(2)
+  contactName   String?        @db.VarChar(100)
+  contactPhone  String?        @db.VarChar(32)
+  contactWechat String?        @db.VarChar(64)
+  address       String?        @db.VarChar(500)
+  notes         String?        @db.VarChar(500)
+  status        SupplierStatus @default(ACTIVE)
+  deletedAt     DateTime? // soft delete: orders/quotes reference suppliers
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  accounts         SupplierAccount[]
+  supplierProducts SupplierProduct[]
+  quotes           Quote[]
+  orders           Order[]
+
+  @@index([status])
+  @@map("suppliers")
+}
+
+// Platform user linked to a supplier entity (1-1 per user, P3.2).
+model SupplierAccount {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  // Free-form role label inside the supplier company.
+  title      String?  @db.VarChar(100)
+  isPrimary  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([supplierId])
+  @@map("supplier_accounts")
+}
+
+// Per-supplier cost price for a catalog product (P3.2); internal only.
+model SupplierProduct {
+  id           String   @id @default(cuid())
+  supplierId   String
+  supplier     Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplierSku  String?  @db.VarChar(64)
+  costPrice    Decimal  @db.Decimal(18, 2)
+  currency     String   @default("CNY") @db.VarChar(3)
+  moq          Int      @default(1)
+  leadTimeDays Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([supplierId, productId])
+  @@map("supplier_products")
+}
+
+enum BannerPartnerType {
+  SUPPLIER
+  SHIPPING
+}
+
+enum BannerPosition {
+  HOME_TOP
+  HOME_MID
+  CATEGORY_SIDEBAR
+  SEARCH_SIDEBAR
+}
+
+model PartnerBanner {
+  id               String            @id @default(cuid())
+  partnerType      BannerPartnerType
+  name             String            @db.VarChar(191)
+  logoFileObjectId String?
+  logoFile         FileObject?       @relation(fields: [logoFileObjectId], references: [id], onDelete: SetNull)
+  linkUrl          String?           @db.VarChar(500)
+  position         BannerPosition
+  isActive         Boolean           @default(true)
+  sortIndex        Int               @default(0)
+  // Display window; null = always active.
+  startsAt         DateTime?
+  endsAt           DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([position, isActive])
+  @@map("partner_banners")
+}
+
+// ---------------------------------------------------------------------------
+// P3.3 — Sourcing (RFQ -> quotes -> order -> shipment/claims/refunds)
+// ---------------------------------------------------------------------------
+
+enum SourcingRequestStatus {
+  OPEN
+  QUOTED
+  CONVERTED
+  CLOSED
+  CANCELLED
+}
+
+model SourcingRequest {
+  id          String                @id @default(cuid())
+  // Business number, format "CVC-RFQ-..." (P3.3).
+  requestNo   String                @unique @db.VarChar(32)
+  buyerId     String
+  buyer       User                  @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  title       String                @db.VarChar(200)
+  content     String?               @db.VarChar(2000)
+  quantity    Int?
+  // Buyer target price for negotiation.
+  targetPrice Decimal?              @db.Decimal(18, 2)
+  currency    String                @default("VND") @db.VarChar(3)
+  expiresAt   DateTime?
+  status      SourcingRequestStatus @default(OPEN)
+  deletedAt   DateTime? // soft delete: quotes/order reference RFQs
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  attachments SourcingRequestAttachment[]
+  quotes      Quote[]
+  selection   QuoteSelection?
+  orders      Order[]
+
+  @@index([buyerId, status])
+  @@index([status])
+  @@map("sourcing_requests")
+}
+
+model SourcingRequestAttachment {
+  id           String          @id @default(cuid())
+  requestId    String
+  request      SourcingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fileObjectId String?
+  fileObject   FileObject?     @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  sortIndex    Int             @default(0)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([requestId])
+  @@map("sourcing_request_attachments")
+}
+
+enum QuoteStatus {
+  SUBMITTED
+  SELECTED
+  REJECTED
+  EXPIRED
+}
+
+model Quote {
+  id           String          @id @default(cuid())
+  requestId    String
+  request      SourcingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  // Supplier identity is internal-only on public endpoints (P3.2 note).
+  supplierId   String
+  supplier     Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  unitPrice    Decimal         @db.Decimal(18, 2)
+  currency     String          @default("VND") @db.VarChar(3)
+  moq          Int             @default(1)
+  leadTimeDays Int             @default(7)
+  validUntil   DateTime?
+  note         String?         @db.VarChar(1000)
+  status       QuoteStatus     @default(SUBMITTED)
+  selectedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  selection QuoteSelection?
+  orders    Order[] // orders born from this quote (selectedQuote)
+
+  @@index([requestId, status])
+  @@index([supplierId])
+  @@map("quotes")
+}
+
+// The one chosen quote per RFQ (P3.3).
+model QuoteSelection {
+  id          String          @id @default(cuid())
+  requestId   String          @unique
+  request     SourcingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  quoteId     String          @unique
+  quote       Quote           @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  decidedById String
+  decidedBy   User            @relation(fields: [decidedById], references: [id], onDelete: Restrict)
+  note        String?         @db.VarChar(500)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@map("quote_selections")
+}
+
+// D7: 10 internal order states (todo.md 4A.4), transitions land in P4.16.
+enum OrderStatus {
+  NEGOTIATING
+  SAMPLING
+  CONTRACT
+  DEPOSIT
+  PRODUCTION
+  QC
+  FINAL_PAYMENT
+  SHIPPING
+  RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
+model Order {
+  id                String           @id @default(cuid())
+  // Business number, format "CVC-ORD-..." (P3.3).
+  orderNo           String           @unique @db.VarChar(32)
+  buyerId           String
+  buyer             User             @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  supplierId        String
+  supplier          Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  sourcingRequestId String?
+  sourcingRequest   SourcingRequest? @relation(fields: [sourcingRequestId], references: [id], onDelete: SetNull)
+  selectedQuoteId   String?
+  selectedQuote     Quote?           @relation(fields: [selectedQuoteId], references: [id], onDelete: SetNull)
+  status            OrderStatus      @default(NEGOTIATING)
+  stageIndex        Int              @default(0)
+  totalAmount       Decimal          @db.Decimal(18, 2)
+  depositAmount     Decimal?         @db.Decimal(18, 2)
+  currency          String           @default("VND") @db.VarChar(3)
+  note              String?          @db.VarChar(1000)
+  // Orders are money records: no delete, no soft delete.
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  stageLogs OrderStageLog[]
+  events    OrderEvent[]
+  samples   Sample[]
+  shipments Shipment[]
+  claims    Claim[]
+  refunds   Refund[]
+
+  @@index([buyerId, status])
+  @@index([supplierId, status])
+  @@index([status])
+  @@map("orders")
+}
+
+// One row per stage transition (audit of the D7 flow).
+model OrderStageLog {
+  id         String      @id @default(cuid())
+  orderId    String
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  stageIndex Int
+  status     OrderStatus
+  actorId    String?
+  note       String?     @db.VarChar(500)
+  occurredAt DateTime    @default(now())
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([orderId, stageIndex])
+  @@map("order_stage_logs")
+}
+
+// Fine-grained order events (messages, payment proofs, QC...).
+model OrderEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type      String   @db.VarChar(64)
+  actorId   String?
+  message   String?  @db.VarChar(500)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId, createdAt])
+  @@map("order_events")
+}
+
+enum SampleStatus {
+  REQUESTED
+  SHIPPED
+  DELIVERED
+  APPROVED
+  REJECTED
+  STOPPED
+}
+
+model Sample {
+  id          String       @id @default(cuid())
+  // Business number, format "CVC-SMP-..." (P3.3).
+  sampleNo    String       @unique @db.VarChar(32)
+  orderId     String
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status      SampleStatus @default(REQUESTED)
+  note        String?      @db.VarChar(500)
+  requestedAt DateTime     @default(now())
+  shippedAt   DateTime?
+  deliveredAt DateTime?
+  decidedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  stops SampleStop[]
+
+  @@index([orderId])
+  @@map("samples")
+}
+
+// Manual pause/resume records while the sample is being made.
+model SampleStop {
+  id        String   @id @default(cuid())
+  sampleId  String
+  sample    Sample   @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  reason    String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sampleId])
+  @@map("sample_stops")
+}
+
+enum ShipmentStatus {
+  PREPARING
+  IN_TRANSIT
+  DELIVERED
+  RETURNED
+}
+
+model Shipment {
+  id                String         @id @default(cuid())
+  orderId           String
+  order             Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // Carrier is entered by hand (no carrier table in P3.3).
+  carrier           String         @db.VarChar(100)
+  trackingNo        String         @db.VarChar(100)
+  trackingUrl       String?        @db.VarChar(500)
+  proofFileObjectId String?
+  proofFile         FileObject?    @relation(fields: [proofFileObjectId], references: [id], onDelete: SetNull)
+  status            ShipmentStatus @default(PREPARING)
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  stops ShipmentStop[]
+
+  @@index([orderId])
+  @@index([trackingNo])
+  @@map("shipments")
+}
+
+// Hand-entered tracking milestones (time, description, entered by).
+model ShipmentStop {
+  id          String   @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  occurredAt  DateTime
+  description String   @db.VarChar(500)
+  enteredById String
+  enteredBy   User     @relation(fields: [enteredById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([shipmentId, occurredAt])
+  @@map("shipment_stops")
+}
+
+enum ClaimStatus {
+  OPEN
+  PROPOSED
+  RESOLVED
+  REJECTED
+  CANCELLED
+}
+
+enum ClaimType {
+  QUALITY
+  DAMAGED
+  MISSING
+  WRONG_ITEM
+  OTHER
+}
+
+model Claim {
+  id        String      @id @default(cuid())
+  // Business number, format "CVC-CLM-..." (P3.3).
+  claimNo   String      @unique @db.VarChar(32)
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type      ClaimType
+  reason    String      @db.VarChar(2000)
+  status    ClaimStatus @default(OPEN)
+  filedById String
+  filedBy   User        @relation(fields: [filedById], references: [id], onDelete: Restrict)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  proposals  ClaimProposal[]
+  resolution ClaimResolution?
+  returns    ReturnShipment[]
+  refunds    Refund[]
+
+  @@index([orderId, status])
+  @@map("claims")
+}
+
+enum ClaimProposalKind {
+  REFUND
+  PARTIAL_REFUND
+  RETURN
+  REPLACE
+  COMPENSATE
+}
+
+enum ClaimProposalStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COUNTERED
+  WITHDRAWN
+}
+
+model ClaimProposal {
+  id           String              @id @default(cuid())
+  claimId      String
+  claim        Claim               @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  kind         ClaimProposalKind
+  // Monetary part of the proposal (null for pure return/replace).
+  amount       Decimal?            @db.Decimal(18, 2)
+  currency     String              @default("VND") @db.VarChar(3)
+  note         String?             @db.VarChar(1000)
+  status       ClaimProposalStatus @default(PENDING)
+  proposedById String
+  proposedBy   User                @relation(fields: [proposedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([claimId])
+  @@map("claim_proposals")
+}
+
+enum ResolutionDecision {
+  REFUND
+  PARTIAL_REFUND
+  REPLACE
+  COMPENSATE
+  REJECT
+}
+
+// Final decision of a claim: one row per claim.
+model ClaimResolution {
+  id          String             @id @default(cuid())
+  claimId     String             @unique
+  claim       Claim              @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  decision    ResolutionDecision
+  note        String?            @db.VarChar(1000)
+  decidedById String
+  decidedBy   User               @relation(fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt   DateTime           @default(now())
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@map("claim_resolutions")
+}
+
+enum ReturnDirection {
+  RETURN_TO_SUPPLIER
+  REPLACEMENT_TO_BUYER
+}
+
+model ReturnShipment {
+  id                String          @id @default(cuid())
+  claimId           String
+  claim             Claim           @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  direction         ReturnDirection
+  carrier           String          @db.VarChar(100)
+  trackingNo        String          @db.VarChar(100)
+  proofFileObjectId String?
+  proofFile         FileObject?     @relation(fields: [proofFileObjectId], references: [id], onDelete: SetNull)
+  status            ShipmentStatus  @default(PREPARING)
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([claimId])
+  @@map("return_shipments")
+}
+
+enum RefundMethod {
+  BANK_TRANSFER
+  WALLET
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Refund {
+  id            String       @id @default(cuid())
+  orderId       String
+  order         Order        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  claimId       String?
+  claim         Claim?       @relation(fields: [claimId], references: [id], onDelete: SetNull)
+  // Bank transfer target; null for wallet refunds.
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  amount        Decimal      @db.Decimal(18, 2)
+  currency      String       @default("VND") @db.VarChar(3)
+  method        RefundMethod
+  status        RefundStatus @default(PENDING)
+  // Loose external payment reference (Payment table arrives in P3.9).
+  paymentRef    String?      @db.VarChar(64)
+  note          String?      @db.VarChar(500)
+  completedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([orderId, status])
+  @@index([claimId])
+  @@map("refunds")
 }

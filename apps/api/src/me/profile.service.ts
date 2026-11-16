@@ -185,7 +185,7 @@ export class ProfileService {
         message: 'Không tìm thấy tài khoản ngân hàng.',
       });
     }
-    assertOwned(userId, existing.userId, 'tài khoản ngân hàng');
+    assertOwned(userId, existing.userId ?? '', 'tài khoản ngân hàng');
 
     return this.prisma.$transaction(async (tx) => {
       if (input.isDefault === true) {
@@ -212,7 +212,7 @@ export class ProfileService {
         message: 'Không tìm thấy tài khoản ngân hàng.',
       });
     }
-    assertOwned(userId, existing.userId, 'tài khoản ngân hàng');
+    assertOwned(userId, existing.userId ?? '', 'tài khoản ngân hàng');
     await this.prisma.bankAccount.delete({ where: { id: accountId } });
     return { message: 'Đã xoá tài khoản ngân hàng.' };
   }

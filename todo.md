@@ -56,7 +56,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 | 0 | 1 / 13 | |
 | 1 | 0 / 15 | |
 | 2 | 23 / 23 | P2.1–P2.23 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC, KYC ảnh + chống trùng + gate @RequireKyc; dùng chung: AuditLog bất biến + hash chuỗi, File service presigned + magic bytes + ClamAV + thumbnail, Notification engine in-app/email + preference, BullMQ queues + dead-letter + bull-board admin, Socket.IO realtime, Idempotency-Key, SystemSetting runtime config, FULLTEXT search bỏ dấu tiếng Việt) |
-| 3 | 0 / 12 | |
+| 3 | 3 / 12 | P3.1–P3.3 xong (tổ chức + TOTP tách bảng + BankAccount gắn org; danh mục/supplier/banner; RFQ → quote → order 10 trạng thái D7 → shipment/claim/refund — 25 bảng mới, 161/161 test xanh) |
 | 4A | 0 / 22 | |
 | 4B | 0 / 6 | |
 | 4C | 0 / 10 | |
@@ -426,17 +426,20 @@ Quy ước chung cho mọi API: prefix `/api/v1`; phân trang `?page=&pageSize=`
 
 Nguyên tắc: mọi bảng có `id` (cuid/uuid), `createdAt`, `updatedAt`; bảng nghiệp vụ quan trọng có `deletedAt` (soft delete) hoặc cấm xóa; tiền dùng `Decimal(18,2)` (hoặc số nguyên đơn vị nhỏ nhất) kèm `currency`; enum cho trạng thái; index theo truy vấn thật; khóa ngoại đầy đủ.
 
-## [ ] P3.1 Người dùng và tổ chức
+## [x] P3.1 Người dùng và tổ chức
 Bảng: `User`, `UserRole`, `Organization`, `KycProfile`, `KycDocument`, `BankAccount`, `Address`, `Session`, `TotpSecret`, `OtpRequest`.
 - Ràng buộc: `User.email` unique (nullable nếu đăng ký bằng SĐT), `User.phone` unique; `BankAccount` gắn `userId`/`organizationId`, số tài khoản lưu mã hóa + 4 số cuối.
+- Xong (2026-11-16) — migration `20261116024752_p3_user_org_catalog_sourcing`: bảng `organizations` (ownerId FK Restrict, soft delete) + `totp_secrets` (secret AES-256-GCM tách khỏi `users`, unique userId; backfill bằng SQL `INSERT ... SELECT` trước khi drop 2 cột TOTP cũ); `BankAccount` thêm `organizationId` (nullable, Restrict) + `userId` chuyển nullable — "ít nhất một chủ sở hữu" enforce ở service layer vì MySQL cấm CHECK trên cột FK có referential action; `User.email` giữ required (35 chỗ auth dùng `.email`, đăng ký SĐT để P4), `phone` unique nullable có sẵn; auth.service refactor 6 chỗ TOTP sang `prisma.totpSecret` (setup upsert / enable update enabledAt / disable deleteMany / verify đọc state riêng); test `schema-p3.integration.spec.ts` phủ unique phone, TotpSecret unique userId, BankAccount tổ chức, default Order.
 
-## [ ] P3.2 Danh mục và nhà cung cấp
+## [x] P3.2 Danh mục và nhà cung cấp
 Bảng: `Category`, `Product` (sku dạng `CVC-001`, `name`, `spec`, `moq`, `leadTimeDays`, `priceRef` nội bộ), `ProductImage`, `ProductSpec`, `Supplier`, `SupplierAccount`, `SupplierProduct`, `PartnerBanner` (nhà cung cấp/vận chuyển, vị trí hiển thị, thời gian hiệu lực).
 - Lưu ý: `priceRef` và `supplierId` **không** trả ra API công khai.
+- Xong (2026-11-16) — 8 bảng: `categories` (cây self-FK SetNull, slug unique, soft delete vì product tham chiếu); `products` (sku unique `CVC-…`, `priceRef` Decimal(18,2) nullable + currency, index `[categoryId, status]`, soft delete); `product_images`/`product_specs` (unique `[productId, key]`); `suppliers` (status enum, soft delete); `supplier_accounts` (1-1 user ↔ supplier, userId unique); `supplier_products` (unique `[supplierId, productId]`, costPrice — nội bộ); `partner_banners` (partnerType SUPPLIER/SHIPPING, position enum, isActive + startsAt/endsAt, logo FK SetNull). Comment schema ghi rõ `priceRef`/`supplierId` không ra API công khai (thi công API ở P4).
 
-## [ ] P3.3 Tìm nguồn
+## [x] P3.3 Tìm nguồn
 Bảng: `SourcingRequest` (RFQ: `buyerId`, nội dung, ảnh, số lượng, `expiresAt`, status), `SourcingRequestAttachment`, `Quote` (`supplierId`, đơn giá, MOQ, lead time, hiệu lực đến), `QuoteSelection`, `Order`, `OrderStageLog`, `OrderEvent`, `Sample`, `SampleStop`, `Shipment` (hãng nhập tay, mã vận đơn, link tra cứu, ảnh phiếu), `ShipmentStop` (mốc nhập tay: thời điểm, mô tả, người nhập), `Claim`, `ClaimProposal`, `ClaimResolution`, `ReturnShipment`, `Refund`.
 - `Order.status` theo bảng chuyển ở P4.16; `Order.stageIndex` hoặc enum 10 trạng thái (D7).
+- Xong (2026-11-16) — 16 bảng: `sourcing_requests` (requestNo `CVC-RFQ-…` unique, buyerId Restrict, soft delete), attachments FK file SetNull; `quotes` (supplierId Restrict, unitPrice Decimal(18,2) + currency, validUntil, 4 trạng thái) + `quote_selections` (1 lựa chọn/RFQ: requestId unique, quoteId unique); `orders` (orderNo `CVC-ORD-…`, buyerId/supplierId Restrict, **cấm xóa**, status enum 10 trạng thái D7 + CANCELLED, stageIndex Int default 0, totalAmount/depositAmount Decimal(18,2) + currency, link sourcingRequest/quote SetNull); `order_stage_logs` + `order_events` (audit chuyển trạng thái, cascade để test dọn được); `samples` (sampleNo `CVC-SMP-…`) + `sample_stops`; `shipments` (carrier/trackingNo nhập tay, proofFile SetNull, index trackingNo) + `shipment_stops` (occurredAt + enteredBy FK); `claims` (claimNo `CVC-CLM-…`, type enum, filedBy FK) + `claim_proposals` (kind/amount/status, proposedBy) + `claim_resolutions` (1/claim: claimId unique) + `return_shipments` (direction RETURN_TO_SUPPLIER/REPLACEMENT_TO_BUYER) + `refunds` (method/status, paymentRef VarChar(64) loose chờ Payment ở P3.9, bankAccountId SetNull). Test schema-p3: P2002 unique, P2003 restrict (User có Order, Category có Product, Supplier có Quote), SetNull file, cascade order children, D7 enum đủ 11 giá trị.
 
 ## [ ] P3.4 Deal Room
 Bảng: `DealRoom` (1–1 với `Order` hoặc với `SourcingRequest` trước khi thành đơn), `DealRoomMember`, `Message` (`type`: text/system/offer), `MessageAttachment`, `Translation` (`messageId`, `lang`, `text`, `provider`), `Offer` (đề nghị giá: đơn giá, số lượng, điều kiện, trạng thái), `LockedTerms` (snapshot điều khoản khi chốt).

@@ -742,8 +742,8 @@ describeDb('Auth API (integration: P2.1–P2.4)', () => {
       expect(ok.status).toBe(200);
 
       const user = await prisma.user.findUnique({ where: { email } });
-      expect(user!.totpEnabledAt).toBeNull();
-      expect(user!.totpSecret).toBeNull();
+      // 2FA off = the secret row is gone entirely (P3.1 split).
+      expect(await prisma.totpSecret.findUnique({ where: { userId: user!.id } })).toBeNull();
       expect(await prisma.recoveryCode.count({ where: { userId: user!.id } })).toBe(0);
     });
 
