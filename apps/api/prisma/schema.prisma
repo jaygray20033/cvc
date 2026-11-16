@@ -12,14 +12,17 @@ datasource db {
 }
 
 // Foundational idempotency table (CLAUDE.md: every money API takes an Idempotency-Key).
-// Replaying the same key must not create a second transaction.
+// Replaying the same key must not create a second transaction. expiresAt
+// powers the 24h TTL (P2.21): expired rows are skipped and deletable.
 model IdempotencyKey {
-  key         String   @id @db.VarChar(191)
-  scope       String   @db.VarChar(100)
-  requestHash String   @db.VarChar(64)
+  key         String    @id @db.VarChar(191)
+  scope       String    @db.VarChar(100)
+  requestHash String    @db.VarChar(64)
   response    Json?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
 
+  @@index([expiresAt])
   @@map("idempotency_keys")
 }
 
@@ -441,4 +444,40 @@ model NotificationPreference {
   updatedAt DateTime @updatedAt
 
   @@map("notification_preferences")
+}
+
+// ---------------------------------------------------------------------------
+// Shared services phase 2.5 (P2.19–P2.23). IdempotencyKey (founded earlier)
+// gains an expiry column; SystemSetting is runtime config (versioned, audit
+// logged, cached). SearchDocument is the generic FULLTEXT index that domain
+// modules feed with searchable text; the real product tables land in P3.2.
+// ---------------------------------------------------------------------------
+
+model SystemSetting {
+  key         String   @id @db.VarChar(100)
+  value       Json
+  version     Int      @default(1)
+  updatedById String?  @db.VarChar(64)
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model SearchDocument {
+  id         String   @id @default(cuid())
+  entityType String   @db.VarChar(32)
+  entityId   String   @db.VarChar(64)
+  title      String   @db.VarChar(200)
+  // Diacritics-stripped lowercase text ("Áo mưa" -> "ao mua"); FULLTEXT
+  // ngram index is added by raw SQL in the migration (Prisma cannot declare
+  // a custom parser).
+  searchText String   @db.VarChar(500)
+  data       Json?
+  status     String   @default("published") @db.VarChar(16)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityType, entityId])
+  @@index([entityType, status])
+  @@map("search_documents")
 }

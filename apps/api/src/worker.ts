@@ -1,36 +1,24 @@
-import { Worker } from 'bullmq';
-import { Redis } from 'ioredis';
-import pino from 'pino';
+import { NestFactory } from '@nestjs/core';
+import { Logger } from 'nestjs-pino';
 
-// Background job worker (same image as api, different command). Real queues land in later phases.
-const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' });
+import { AppModule } from './app.module';
+import { QueueProcessor } from './queue/queue.processor';
 
-const redisUrl = process.env.REDIS_URL;
-if (!redisUrl) {
-  logger.error('REDIS_URL is required for the worker.');
-  process.exit(1);
+// Background worker process (same image as api, different command, P2.19).
+// Boots the Nest context without an HTTP listener: QueueProcessor's
+// onModuleInit starts the BullMQ workers (same handler registry as the api
+// container), then the process idles until SIGTERM.
+async function bootstrap(): Promise<void> {
+  const app = await NestFactory.createApplicationContext(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
+  app.get(QueueProcessor); // workers start on module init
+
+  const shutdown = async (): Promise<void> => {
+    await app.close();
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => void shutdown());
+  process.on('SIGINT', () => void shutdown());
 }
 
-const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
-const queueName = 'cvc-default';
-
-const worker = new Worker(
-  queueName,
-  async (job) => {
-    // Placeholder processor; replace with real handlers per phase.
-    logger.info({ jobId: job.id, name: job.name }, 'processing job');
-  },
-  { connection },
-);
-
-worker.on('ready', () => logger.info({ queue: queueName }, 'worker ready'));
-worker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'job failed'));
-
-async function shutdown(): Promise<void> {
-  await worker.close();
-  await connection.quit();
-  process.exit(0);
-}
-
-process.on('SIGTERM', () => void shutdown());
-process.on('SIGINT', () => void shutdown());
+void bootstrap();

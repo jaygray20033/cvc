@@ -17,6 +17,7 @@ import {
 } from '../common/utils/validators';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SystemSettingsService } from '../settings/system-settings.service';
 import type { KycChecklist, PresignUploadInput } from './kyc.dto';
 
 type SubmissionStatus = 'PENDING' | 'NEED_MORE' | 'APPROVED' | 'REJECTED';
@@ -30,18 +31,17 @@ export class KycService {
   private readonly logger = new Logger(KycService.name);
   private readonly encryptionKey: string;
   private readonly cccdHashSalt: string;
-  private readonly slaHours: number;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly s3: S3Service,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
+    private readonly settings: SystemSettingsService,
     config: ConfigService,
   ) {
     this.encryptionKey = config.get<string>('encryption.key', '');
     this.cccdHashSalt = config.get<string>('kyc.cccdHashSalt', '');
-    this.slaHours = config.get<number>('kyc.slaHours', 48);
   }
 
   // ---- user side (P2.12) ----
@@ -168,7 +168,7 @@ export class KycService {
 
   // GET /me/kyc/sla: configured review SLA (hours) shown to the user (P2.14).
   getSla() {
-    return { slaHours: this.slaHours };
+    return this.settings.get<number>('kyc.slaHours').then((slaHours) => ({ slaHours }));
   }
 
   // PUT /me/kyc/cccd: store the CCCD number on the open submission (encrypted

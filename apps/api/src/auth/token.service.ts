@@ -52,6 +52,16 @@ export class TokenService {
     });
   }
 
+  // Verify an access token outside the HTTP guard chain (socket handshake,
+  // bull-board middleware).
+  verifyAccessToken(token: string): AccessPayload {
+    const payload = this.jwt.verify<AccessPayload>(token, {
+      secret: this.config.get<string>('jwt.accessSecret'),
+    });
+    if (!payload.sub || !payload.sid) throw new Error('Malformed token payload.');
+    return payload;
+  }
+
   // Short-lived token issued after the password step when TOTP is enabled;
   // exchanged for a session at POST /auth/2fa/verify (P2.5).
   createMfaToken(userId: string, expiresIn: string = AUTH_MFA_TTL): string {

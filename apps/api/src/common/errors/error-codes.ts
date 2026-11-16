@@ -7,6 +7,7 @@ export const ErrorCode = {
   Forbidden: 'FORBIDDEN',
   NotFound: 'NOT_FOUND',
   Conflict: 'CONFLICT',
+  UnprocessableEntity: 'UNPROCESSABLE_ENTITY',
   UniqueConstraint: 'UNIQUE_CONSTRAINT',
   ForeignKeyConstraint: 'FOREIGN_KEY_CONSTRAINT',
   // P2.15: KYC gate — account not verified enough for this action.

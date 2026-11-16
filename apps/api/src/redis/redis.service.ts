@@ -35,6 +35,38 @@ export class RedisService implements OnModuleDestroy {
     await this.client.del(key);
   }
 
+  // Generic access for locks and realtime room membership (P2.19/P2.20).
+  async get(key: string): Promise<string | null> {
+    return this.client.get(key);
+  }
+
+  async setWithTtl(key: string, value: string, ttlMs: number): Promise<void> {
+    await this.client.set(key, value, 'PX', ttlMs);
+  }
+
+  // SET key value NX PX ttl — the atomic lock primitive (P2.19).
+  async setNx(key: string, value: string, ttlMs: number): Promise<boolean> {
+    const res = await this.client.set(key, value, 'PX', ttlMs, 'NX');
+    return res === 'OK';
+  }
+
+  async del(key: string): Promise<void> {
+    await this.client.del(key);
+  }
+
+  async sadd(key: string, member: string): Promise<void> {
+    await this.client.sadd(key, member);
+  }
+
+  async srem(key: string, member: string): Promise<void> {
+    await this.client.srem(key, member);
+  }
+
+  async isMember(key: string, member: string): Promise<boolean> {
+    const res = await this.client.sismember(key, member);
+    return res === 1;
+  }
+
   // Deletes every key matching a glob pattern (used in tests to clear counters).
   async deleteByPattern(pattern: string): Promise<void> {
     let cursor = '0';

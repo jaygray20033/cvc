@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/errors/error-codes';
 import { MailService } from '../common/mail/mail.service';
 import { assertOwned } from '../common/policies/ownership';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { NOTIFICATION_TEMPLATES } from './notification-templates';
 import type { UpdatePreferencesInput } from './notifications.dto';
 
@@ -11,6 +12,7 @@ import type { UpdatePreferencesInput } from './notifications.dto';
 // and delivers per channel: in-app rows are always stored, email goes through
 // MailService, sms/zns/push are stubs until their providers are integrated
 // (D13/D11). User opt-outs apply except for mandatory events (security/money).
+// Every in-app row is also pushed to the user's realtime room (P2.20).
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
@@ -18,6 +20,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   async emit(event: string, userId: string, data: Record<string, unknown> = {}): Promise<void> {
@@ -35,7 +38,7 @@ export class NotificationsService {
     // In-app row unless the user opted out of in_app for this non-mandatory event.
     const inAppAllowed = template?.mandatory || prefs.inApp;
     if (inAppAllowed) {
-      await this.prisma.notification.create({
+      const row = await this.prisma.notification.create({
         data: {
           userId,
           event,
@@ -43,6 +46,15 @@ export class NotificationsService {
           body: rendered.body,
           data: data as object,
         },
+      });
+      // Realtime push (P2.20): fires only when a gateway is live in-process;
+      // with the Redis adapter the event reaches sockets in any process.
+      this.realtime.toUser(userId, 'notification.new', {
+        id: row.id,
+        event,
+        title: rendered.title,
+        body: rendered.body,
+        createdAt: row.createdAt,
       });
     }
 

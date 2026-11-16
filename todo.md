@@ -55,7 +55,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 |---|---|---|
 | 0 | 1 / 13 | |
 | 1 | 0 / 15 | |
-| 2 | 18 / 23 | P2.1–P2.18 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC, KYC ảnh + chống trùng + gate @RequireKyc; dùng chung: AuditLog bất biến + hash chuỗi, File service presigned + magic bytes + ClamAV + thumbnail, Notification engine in-app/email + preference) |
+| 2 | 23 / 23 | P2.1–P2.23 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC, KYC ảnh + chống trùng + gate @RequireKyc; dùng chung: AuditLog bất biến + hash chuỗi, File service presigned + magic bytes + ClamAV + thumbnail, Notification engine in-app/email + preference, BullMQ queues + dead-letter + bull-board admin, Socket.IO realtime, Idempotency-Key, SystemSetting runtime config, FULLTEXT search bỏ dấu tiếng Việt) |
 | 3 | 0 / 12 | |
 | 4A | 0 / 22 | |
 | 4B | 0 / 6 | |
@@ -391,32 +391,32 @@ Quy ước chung cho mọi API: prefix `/api/v1`; phân trang `?page=&pageSize=`
 - Việc làm: bảng `Notification`, `NotificationPreference`; sự kiện miền → `NotificationService.emit(event, data)` → render template (đa ngôn ngữ) → gửi kênh in-app/email/SMS/ZNS/push theo cấu hình; trạng thái đã đọc; API `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all`.
 - DoD: sự kiện mẫu đi đủ kênh ở dev (mailpit); người dùng tắt kênh thì không gửi (trừ thông báo bắt buộc: bảo mật, tiền). Xong (2026-11-15) — registry template `kyc.status_changed` + `security.password_changed` (bắt buộc, bỏ qua opt-out), event lạ → fallback generic; emit ghi row in-app + email qua MailService, sms/zns/push là stub (chờ P2.19/P5); KYC review chuyển sang engine này; API `GET /notifications` (+unreadCount), read/read-all, `GET/PUT /me/notification-preferences`; test mailpit kiểm chứng opt-out và event bắt buộc.
 
-### [ ] P2.19 Hàng đợi job
+### [x] P2.19 Hàng đợi job
 - Việc làm: BullMQ queues: `notifications`, `payments`, `reconcile`, `campaign`, `claims`, `files`; retry có backoff, dead-letter; bảng/trang theo dõi job (bull-board, chỉ admin); job định kỳ (cron) có khóa phân tán để chỉ chạy một bản.
-- DoD: job lỗi được thử lại và vào dead-letter; test idempotency cho job nhận lại.
+- DoD: job lỗi được thử lại và vào dead-letter; test idempotency cho job nhận lại. Xong (2026-11-16) — module `src/queue`: QueueService (lười khởi tạo, mặc định 5 lần thử, backoff expo 3s) + QueueProcessor (worker chạy trong mọi tiến trình boot AppModule, concurrency 5); job hết lượt thử được đối chiếu sang DLQ `dead-letter` (không worker, để admin xem/chạy lại); `enqueueIdempotent` (cùng jobId bị BullMQ dedupe — test 10 lần nhận lại chỉ chạy 1 lần); cron `kyc.sla-sweep` (*/15) + `files.rescan-stuck` (*/5) bọc khóa phân tán Redis SET NX PX; post-process file chuyển sang queue `files`; API admin `GET /admin/jobs`, `GET /admin/jobs/dead-letter`, `GET /admin/jobs/:queue/failed`, `POST /admin/jobs/:queue/:jobId/retry`; bull-board v9 mount `/api/v1/admin/queues` (bearer token + role admin, không qua guard Nest); container `worker` boot cùng context, các cron repeatable được dedupe theo jobId.
 
-### [ ] P2.20 Realtime
+### [x] P2.20 Realtime
 - Việc làm: Socket.IO gateway, xác thực bằng JWT, phòng theo `dealRoomId` và `userId`; sự kiện: `message.new`, `order.status`, `notification.new`, `campaign.progress`; kiểm tra quyền khi join phòng; dùng Redis adapter nếu chạy nhiều tiến trình.
-- DoD: user không join được phòng của người khác (test); mất kết nối tự nối lại ở FE.
+- DoD: user không join được phòng của người khác (test); mất kết nối tự nối lại ở FE. Xong (2026-11-16) — gateway `/ws` xác thực JWT trong `handshake.auth.token`, tự vào phòng riêng `user:{sub}`; `room:join`/`room:leave` kiểm tra quyền qua `RealtimeService.assertCanJoin` (phòng của mình OK, `dealRoom:{id}` cần là thành viên (Redis set `realtime:dealroom:{id}:members`) hoặc admin, prefix lạ bị chặn — test phủ nhận join phòng người khác); Redis adapter pub/sub để chạy nhiều tiến trình; `notification.new` push vào phòng user mỗi lần ghi row in-app; service cấp/thu hồi quyền phòng cho P3.4; FE socket.io mặc định tự nối lại.
 
-### [ ] P2.21 Idempotency
+### [x] P2.21 Idempotency
 - Việc làm: middleware nhận header `Idempotency-Key` cho các POST tạo giao dịch tiền/đơn/tham gia; lưu (key, hash request, response) trong Redis/DB TTL 24h; cùng key khác nội dung → 422.
-- DoD: gọi lặp 10 lần chỉ tạo 1 bản ghi (test song song).
+- DoD: gọi lặp 10 lần chỉ tạo 1 bản ghi (test song song). Xong (2026-11-16) — interceptor toàn cục chạy trước AuditInterceptor, chỉ áp dụng POST có header `Idempotency-Key`; lưu vào bảng `idempotency_keys` (thêm cột `expiresAt`, TTL 24h, key = sha256(path|key)); cùng key khác body → 422 `UNPROCESSABLE_ENTITY`; lặp song song: 1 request giữ slot, còn lại chờ lấy kết quả đã lưu (hết chờ → 409), trả lại đúng status + body cũ; request lỗi xóa slot để thử lại; test 10 POST song song chỉ tạo 1 bản ghi.
 
-### [ ] P2.22 Cấu hình hệ thống
+### [x] P2.22 Cấu hình hệ thống
 - Việc làm: `SystemSetting` (key, value JSON, version, updatedBy); API admin; có validate theo schema từng khóa; cache; ghi audit; mẫu email/SMS/hợp đồng quản lý qua đây hoặc bảng riêng.
-- DoD: đổi cấu hình có hiệu lực không cần deploy; lịch sử thay đổi xem được.
+- DoD: đổi cấu hình có hiệu lực không cần deploy; lịch sử thay đổi xem được. Xong (2026-11-16) — bảng `system_settings` + registry zod `SETTING_DEFINITIONS` (`kyc.slaHours`, `files.maxImageMb`, `files.maxPdfMb`, `notifications.emailEnabled`, `search.minQueryLength`); API `GET/PUT /admin/system-settings` (xem: mọi admin; sửa: chỉ admin_super), `GET :key/history` đọc từ AuditLog; cache Redis TTL 30s, tự hủy khi ghi; KYC guard/SLA + giới hạn dung lượng file giờ đọc từ settings (đổi là có hiệu lực ngay, không cần deploy); test kiểm chứng validate, phân quyền, hiệu lực tức thời, lịch sử.
 
-### [ ] P2.23 Tìm kiếm
+### [x] P2.23 Tìm kiếm
 - Việc làm: bắt đầu bằng MySQL FULLTEXT (tên, SKU, thông số, danh mục) có bỏ dấu tiếng Việt (cột chuẩn hóa `searchText`, tương đương `searchText()` trong `sourcing-data.js`); đo hiệu năng, nâng lên Meilisearch/OpenSearch khi cần.
-- DoD: tìm "ao mua" ra "Áo mưa..."; trả lời < 200 ms với dữ liệu thật.
+- DoD: tìm "ao mua" ra "Áo mưa..."; trả lời < 200 ms với dữ liệu thật. Xong (2026-11-16) — bảng `search_documents` chung (entityType/entityId/title/searchText chuẩn hóa bỏ dấu + đ→d, tương đương `searchText()` legacy) với FULLTEXT ngram parser (thêm bằng raw SQL trong migration vì Prisma không khai báo được parser); `SearchService.search` dùng `$queryRaw` MATCH AGAINST natural language, trả về `tookMs`; `GET /search` công khai có lọc `type` + phân trang; test "ao mua" ra "Áo mưa gấp gọn" (kể cả gõ có dấu), loại bản nháp, `tookMs` < 200 ms.
 
 ---
 
 ## DoD Phase 2
-- [ ] Đăng ký → xác minh → đăng nhập → KYC → vào đúng vai trò.
-- [ ] Test phân quyền (ma trận + IDOR) xanh.
-- [ ] Audit log, idempotency, rate limit hoạt động.
+- [x] Đăng ký → xác minh → đăng nhập → KYC → vào đúng vai trò.
+- [x] Test phân quyền (ma trận + IDOR) xanh.
+- [x] Audit log, idempotency, rate limit hoạt động.
 - [x] File upload an toàn, thông báo đa kênh chạy ở dev.
 
 ---

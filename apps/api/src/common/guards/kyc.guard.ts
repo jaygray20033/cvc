@@ -1,10 +1,10 @@
 import type { KycLevel } from '@cvc/shared';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { SystemSettingsService } from '../../settings/system-settings.service';
 import type { AccessPayload } from '../decorators/current-user.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { REQUIRE_KYC_KEY } from '../decorators/require-kyc.decorator';
@@ -18,7 +18,7 @@ export class KycGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
+    private readonly settings: SystemSettingsService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -50,7 +50,7 @@ export class KycGuard implements CanActivate {
       throw new ForbiddenException({
         code: ErrorCode.KycRequired,
         message: 'Bạn cần xác minh danh tính (KYC) và được duyệt trước khi thực hiện thao tác này.',
-        details: { requiredLevel: level, slaHours: this.slaHours() },
+        details: { requiredLevel: level, slaHours: await this.slaHours() },
       });
     }
 
@@ -69,7 +69,8 @@ export class KycGuard implements CanActivate {
     return true;
   }
 
-  private slaHours(): number {
-    return this.config.get<number>('kyc.slaHours', 48);
+  private async slaHours(): Promise<number> {
+    // Runtime setting (P2.22) with schema default 48h.
+    return this.settings.get<number>('kyc.slaHours');
   }
 }

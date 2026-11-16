@@ -6,9 +6,10 @@ import { FilesService } from './files.service';
 import { VirusScanService } from './virus-scan.service';
 
 // Shared file service (P2.17). AuditService and MailService are global;
-// BullMQ queues land in P2.19 (scan/thumbnail run in-process until then).
+// QueueModule (P2.19) imports this module to reach the post-process handler.
 @Module({
   controllers: [FilesController],
   providers: [FilesService, VirusScanService, S3Service],
+  exports: [FilesService],
 })
 export class FilesModule {}

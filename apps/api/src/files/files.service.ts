@@ -7,7 +7,6 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../common/audit/audit.service';
 import { type AccessPayload } from '../common/decorators/current-user.decorator';
@@ -15,7 +14,9 @@ import { ErrorCode } from '../common/errors/error-codes';
 import { assertOwned } from '../common/policies/ownership';
 import { S3Service } from '../common/storage/s3.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { type PresignFileInput, SIZE_LIMITS } from './files.dto';
+import { QueueService } from '../queue/queue.service';
+import { SystemSettingsService } from '../settings/system-settings.service';
+import { isImageMime, type PresignFileInput } from './files.dto';
 import { detectMime } from './magic-bytes';
 import { VirusScanService } from './virus-scan.service';
 
@@ -32,16 +33,20 @@ export class FilesService {
     private readonly s3: S3Service,
     private readonly scanner: VirusScanService,
     private readonly audit: AuditService,
-    private readonly config: ConfigService,
+    private readonly settings: SystemSettingsService,
+    private readonly queues: QueueService,
   ) {}
 
   // POST /files/presign
   async presign(user: AccessPayload, input: PresignFileInput) {
-    const limit = SIZE_LIMITS[input.mime] ?? 5 * 1024 * 1024;
+    // Runtime limit (P2.22) instead of the static SIZE_LIMITS map.
+    const mbSetting = isImageMime(input.mime) ? 'files.maxImageMb' : 'files.maxPdfMb';
+    const limitMb = await this.settings.get<number>(mbSetting);
+    const limit = limitMb * 1024 * 1024;
     if (input.sizeBytes > limit) {
       throw new BadRequestException({
         code: ErrorCode.BadRequest,
-        message: `Loại tệp này tối đa ${Math.floor(limit / (1024 * 1024))}MB.`,
+        message: `Loại tệp này tối đa ${limitMb}MB.`,
       });
     }
 
@@ -106,8 +111,14 @@ export class FilesService {
       data: { status: 'READY', detectedMime: detected, scanStatus: 'PENDING', sha256 },
     });
 
-    // Async post-processing (no BullMQ until P2.19): fire and forget.
-    void this.postProcess(file.id).catch(() => undefined);
+    // Post-processing runs through the files queue (P2.19 BullMQ): scan then
+    // thumbnail, idempotent per fileId (job ids cannot contain ':').
+    await this.queues.enqueueIdempotent(
+      'files',
+      'file.post-process',
+      { fileId: file.id },
+      `file-post-${file.id}`,
+    );
 
     return { message: 'Đã xác nhận tệp. Đang quét virus...', fileId: file.id };
   }
@@ -172,9 +183,12 @@ export class FilesService {
 
   // ---- post-processing ----
 
-  private async postProcess(fileId: string): Promise<void> {
+  // Queue entry point (P2.19): virus scan then thumbnail, safe to re-run.
+  async postProcessById(fileId: string): Promise<void> {
     const file = await this.prisma.fileObject.findUnique({ where: { id: fileId } });
     if (!file) return;
+    // Already scanned: skip unless re-run is explicitly needed (rescan cron).
+    if (file.scanStatus === 'CLEAN' || file.scanStatus === 'INFECTED') return;
     try {
       const bytes = await this.s3.getObjectBytes(file.bucket, file.s3Key, 32 * 1024 * 1024);
       const scan = await this.scanner.scan(bytes);
@@ -198,7 +212,7 @@ export class FilesService {
         data: { scanStatus: 'CLEAN', scanAt: new Date() },
       });
       // Thumbnail for images (best effort, never blocks the scan verdict).
-      if ((file.detectedMime ?? '').startsWith('image/')) {
+      if ((file.detectedMime ?? '').startsWith('image/') && !file.thumbnailKey) {
         await this.makeThumbnail(file.id).catch(() => undefined);
       }
     } catch (error) {

@@ -13,6 +13,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
 import { AuditModule } from './common/audit/audit.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { RetryAfterThrottlerGuard } from './common/guards/throttler.guard';
+import { IdempotencyInterceptor } from './common/idempotency/idempotency.interceptor';
 import { buildPinoOptions } from './common/logger/logger.config';
 import { MailModule } from './common/mail/mail.module';
 import { validateEnv } from './config/env.validation';
@@ -21,7 +22,11 @@ import { KycModule } from './kyc/kyc.module';
 import { MeModule } from './me/me.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { QueueModule } from './queue/queue.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { RedisModule } from './redis/redis.module';
+import { SearchModule } from './search/search.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -59,12 +64,18 @@ import { RedisModule } from './redis/redis.module';
     KycModule,
     FilesModule,
     NotificationsModule,
+    QueueModule,
+    RealtimeModule,
+    SettingsModule,
+    SearchModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: RetryAfterThrottlerGuard },
+    // Idempotency first: replays short-circuit below audit (P2.21).
+    { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
     // Automatic audit trail for write requests (P2.16).
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],

@@ -11,13 +11,19 @@ export const FILE_MIME_TYPES = [
   'application/pdf',
 ] as const;
 
-// Size limits per type (P2.17): images 5MB, pdf 10MB.
+// Size limits per type (P2.17 defaults; overridden at runtime by the
+// settings keys files.maxImageMb / files.maxPdfMb since P2.22).
 export const SIZE_LIMITS: Record<string, number> = {
   'image/jpeg': 5 * 1024 * 1024,
   'image/png': 5 * 1024 * 1024,
   'image/webp': 5 * 1024 * 1024,
   'application/pdf': 10 * 1024 * 1024,
 };
+
+// True when the declared MIME is an image kind (drives the MB setting).
+export function isImageMime(mime: string): boolean {
+  return mime.startsWith('image/');
+}
 
 export const presignFileSchema = z.object({
   purpose: z.enum(FILE_PURPOSES).default('general'),
