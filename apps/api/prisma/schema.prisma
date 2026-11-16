@@ -86,6 +86,37 @@ model User {
   claimResolutions       ClaimResolution[]
   shipmentStopsEntered   ShipmentStop[]
 
+  // Deal room / contracts (P3.4/P3.5).
+  dealRoomMemberships           DealRoomMember[]
+  dealMessagesSent              Message[]
+  offersMade                    Offer[]
+  lockedTermsConfirmed          LockedTerms[]
+  contractSignatures            ContractSignature[]
+  // Group buy (P3.6).
+  campaignsCreated              Campaign[]
+  campaignStageLogs             CampaignStageLog[]
+  surveysCreated                CampaignSurvey[]
+  risksRecorded                 CampaignRisk[]
+  participations                Participation[]
+  goodsRequestsHandled          GoodsRequest[]
+  returnRequestsDecided         ReturnRequest[]
+  // Resale (P3.7).
+  storesOwned                   Store[]
+  retailerRegistration          RetailerRegistration?  @relation("RetailerOwner")
+  retailerRegistrationsReviewed RetailerRegistration[] @relation("RetailerReviewer")
+  allocationsMade               Allocation[]
+  transfersSent                 Transfer[]             @relation("TransferSender")
+  transfersReceived             Transfer[]             @relation("TransferReceiver")
+  receiptsUploaded              TransferReceipt[]
+  // Sales/inventory (P3.8).
+  salesMade                     Sale[]
+  saleImportsUploaded           SaleImport[]
+  inventoryMovementsMade        InventoryMovement[]
+  stockCountsDone               StockCount[]
+  inspectionsDone               Inspection[]
+  qcReportsDone                 QcReport[]
+  ContractParty                 ContractParty[]
+
   @@map("users")
 }
 
@@ -436,6 +467,11 @@ model FileObject {
   sourcingRequestAttachments SourcingRequestAttachment[]
   shipments                  Shipment[]
   returnShipments            ReturnShipment[]
+  // P3.4-P3.8 file references.
+  messageAttachments         MessageAttachment[]
+  signedContracts            Contract[]
+  transferReceipts           TransferReceipt[]
+  inspectionPhotos           InspectionPhoto[]
 
   @@index([ownerType, ownerId, createdAt])
   @@index([sha256])
@@ -601,9 +637,15 @@ model Product {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  images           ProductImage[]
-  specs            ProductSpec[]
-  supplierProducts SupplierProduct[]
+  images             ProductImage[]
+  specs              ProductSpec[]
+  supplierProducts   SupplierProduct[]
+  campaignLines      CampaignLine[]
+  participationLines ParticipationLine[]
+  allocationLines    AllocationLine[]
+  saleLines          SaleLine[]
+  resaleListings     ResaleListing[]
+  inventoryLots      InventoryLot[]
 
   @@index([categoryId, status])
   @@index([status])
@@ -664,6 +706,7 @@ model Supplier {
   supplierProducts SupplierProduct[]
   quotes           Quote[]
   orders           Order[]
+  campaigns        Campaign[]
 
   @@index([status])
   @@map("suppliers")
@@ -770,6 +813,7 @@ model SourcingRequest {
   attachments SourcingRequestAttachment[]
   quotes      Quote[]
   selection   QuoteSelection?
+  dealRoom    DealRoom?
   orders      Order[]
 
   @@index([buyerId, status])
@@ -877,12 +921,15 @@ model Order {
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
-  stageLogs OrderStageLog[]
-  events    OrderEvent[]
-  samples   Sample[]
-  shipments Shipment[]
-  claims    Claim[]
-  refunds   Refund[]
+  stageLogs   OrderStageLog[]
+  events      OrderEvent[]
+  samples     Sample[]
+  shipments   Shipment[]
+  claims      Claim[]
+  refunds     Refund[]
+  dealRoom    DealRoom?
+  qcReports   QcReport[]
+  LockedTerms LockedTerms?
 
   @@index([buyerId, status])
   @@index([supplierId, status])
@@ -989,7 +1036,8 @@ model Shipment {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  stops ShipmentStop[]
+  stops       ShipmentStop[]
+  inspections Inspection[]
 
   @@index([orderId])
   @@index([trackingNo])
@@ -1169,4 +1217,943 @@ model Refund {
   @@index([orderId, status])
   @@index([claimId])
   @@map("refunds")
+}
+
+// ---------------------------------------------------------------------------
+// P3.4 — Deal room (chat, offers, locked terms)
+// ---------------------------------------------------------------------------
+
+enum DealRoomStatus {
+  OPEN
+  LOCKED
+  CLOSED
+}
+
+// One room per order, or per RFQ before it converts to an order (P3.4).
+model DealRoom {
+  id                String           @id @default(cuid())
+  orderId           String?          @unique
+  order             Order?           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sourcingRequestId String?          @unique
+  sourcingRequest   SourcingRequest? @relation(fields: [sourcingRequestId], references: [id], onDelete: Cascade)
+  title             String?          @db.VarChar(200)
+  status            DealRoomStatus   @default(OPEN)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  members  DealRoomMember[]
+  messages Message[]
+  offers   Offer[]
+
+  @@index([status])
+  @@map("deal_rooms")
+}
+
+model DealRoomMember {
+  id        String   @id @default(cuid())
+  roomId    String
+  room      DealRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // buyer | supplier | sales | admin | ...
+  role      String   @default("member") @db.VarChar(32)
+  joinedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@map("deal_room_members")
+}
+
+enum MessageType {
+  TEXT
+  SYSTEM
+  OFFER
+}
+
+model Message {
+  id        String      @id @default(cuid())
+  roomId    String
+  room      DealRoom    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  senderId  String?
+  sender    User?       @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  type      MessageType @default(TEXT)
+  body      String      @db.VarChar(2000)
+  data      Json?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  attachments  MessageAttachment[]
+  translations Translation[]
+  Offer        Offer[]
+
+  @@index([roomId, createdAt])
+  @@map("deal_messages")
+}
+
+model MessageAttachment {
+  id           String      @id @default(cuid())
+  messageId    String
+  message      Message     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileObjectId String?
+  fileObject   FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  sortIndex    Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([messageId])
+  @@map("message_attachments")
+}
+
+// Per-language translation of a room message (P3.4).
+model Translation {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  lang      String   @db.VarChar(8)
+  text      String   @db.VarChar(4000)
+  // google | human | ...
+  provider  String   @default("manual") @db.VarChar(32)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([messageId, lang])
+  @@map("translations")
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COUNTERED
+  WITHDRAWN
+}
+
+model Offer {
+  id          String      @id @default(cuid())
+  roomId      String
+  room        DealRoom    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  // Optional link to the message that carried this offer.
+  messageId   String?
+  message     Message?    @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  createdById String
+  createdBy   User        @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  unitPrice   Decimal     @db.Decimal(18, 2)
+  currency    String      @default("VND") @db.VarChar(3)
+  quantity    Int
+  conditions  String?     @db.VarChar(1000)
+  status      OfferStatus @default(PENDING)
+  validUntil  DateTime?
+  decidedAt   DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([roomId, status])
+  @@map("offers")
+}
+
+// Immutable snapshot of the agreed terms at lock time (P3.4): a trigger in
+// the migration blocks UPDATE; rows are only ever inserted.
+model LockedTerms {
+  id         String   @id @default(cuid())
+  orderId    String   @unique
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  terms      Json
+  currency   String   @default("VND") @db.VarChar(3)
+  lockedById String
+  lockedBy   User     @relation(fields: [lockedById], references: [id], onDelete: Restrict)
+  lockedAt   DateTime @default(now())
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("locked_terms")
+}
+
+// ---------------------------------------------------------------------------
+// P3.5 — Contracts
+// ---------------------------------------------------------------------------
+
+enum ContractType {
+  SOURCING
+  PARTICIPATION
+  RETAIL
+}
+
+enum ContractStatus {
+  DRAFT
+  PENDING_SIGNATURE
+  SIGNED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum ContractSignMethod {
+  OTP
+  E_SIGN
+  WET_INK
+  MANUAL
+}
+
+model ContractTemplate {
+  id        String       @id @default(cuid())
+  type      ContractType
+  version   Int
+  title     String       @db.VarChar(200)
+  // Body with {{variable}} placeholders.
+  content   String       @db.Text
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  contracts Contract[]
+
+  @@unique([type, version])
+  @@map("contract_templates")
+}
+
+model Contract {
+  id                 String           @id @default(cuid())
+  // Loose owner reference: sourcing_order | campaign | consignment | ...
+  ownerType          String           @db.VarChar(32)
+  ownerId            String           @db.VarChar(64)
+  templateId         String
+  template           ContractTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  templateVersion    Int
+  status             ContractStatus   @default(DRAFT)
+  providerRef        String?          @db.VarChar(64)
+  signedFileObjectId String?
+  signedFile         FileObject?      @relation(fields: [signedFileObjectId], references: [id], onDelete: SetNull)
+  fileHash           String?          @db.VarChar(64)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  versions   ContractVersion[]
+  parties    ContractParty[]
+  signatures ContractSignature[]
+
+  @@index([ownerType, ownerId])
+  @@index([status])
+  @@map("contracts")
+}
+
+// Append-only content history; after SIGNED the contract never gets a new
+// version (service-level rule, P3.5).
+model ContractVersion {
+  id         String   @id @default(cuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  version    Int
+  content    String   @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([contractId, version])
+  @@map("contract_versions")
+}
+
+model ContractParty {
+  id          String   @id @default(cuid())
+  contractId  String
+  contract    Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  // buyer | supplier | cvc | witness | ...
+  role        String   @db.VarChar(32)
+  displayName String   @db.VarChar(191)
+  // Platform user when the party is an account, null for external parties.
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contact     String?  @db.VarChar(191)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  signatures ContractSignature[]
+
+  @@unique([contractId, role])
+  @@index([userId])
+  @@map("contract_parties")
+}
+
+model ContractSignature {
+  id             String             @id @default(cuid())
+  contractId     String
+  contract       Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  partyId        String
+  party          ContractParty      @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  method         ContractSignMethod @default(MANUAL)
+  providerRef    String?            @db.VarChar(64)
+  signedByUserId String?
+  signedBy       User?              @relation(fields: [signedByUserId], references: [id], onDelete: SetNull)
+  signedAt       DateTime           @default(now())
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([contractId, partyId])
+  @@map("contract_signatures")
+}
+
+// ---------------------------------------------------------------------------
+// P3.6 — Group buy (mua hộ)
+// ---------------------------------------------------------------------------
+
+// D7-aligned demo flow: 7 steps (stage 0-6 in legacy domain.js).
+enum CampaignStage {
+  REGISTRATION
+  DEPOSIT
+  PRODUCTION
+  IMPORT
+  ALLOCATION
+  RETAIL
+  DONE
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  CLOSED
+  CANCELLED
+}
+
+enum RiskKind {
+  DEMAND
+  SUPPLY
+  LOGISTICS
+  FX
+  OTHER
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Campaign {
+  id                   String         @id @default(cuid())
+  name                 String         @db.VarChar(200)
+  capacity             Int
+  stage                CampaignStage  @default(REGISTRATION)
+  status               CampaignStatus @default(DRAFT)
+  deadline             DateTime?
+  supplierId           String?
+  supplier             Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  createdById          String
+  createdBy            User           @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  // Economic parameters per D4 (per campaign, overridable per line).
+  costPrice            Decimal        @db.Decimal(18, 2)
+  retailPrice          Decimal        @db.Decimal(18, 2)
+  currency             String         @default("VND") @db.VarChar(3)
+  participantShareRate Decimal        @db.Decimal(6, 4)
+  retailerShareRate    Decimal        @db.Decimal(6, 4)
+  cvcFeeRate           Decimal        @db.Decimal(6, 4)
+  logisticsCost        Decimal?       @db.Decimal(18, 2)
+  storageCost          Decimal?       @db.Decimal(18, 2)
+  otherCost            Decimal?       @db.Decimal(18, 2)
+  depositRate          Decimal        @default(0.3000) @db.Decimal(6, 4)
+  returnAfterDays      Int            @default(45) // D5
+  returnBonusRate      Decimal        @default(0.0300) @db.Decimal(6, 4) // D5
+  deletedAt            DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  lines          CampaignLine[]
+  stageLogs      CampaignStageLog[]
+  surveys        CampaignSurvey[]
+  risks          CampaignRisk[]
+  participations Participation[]
+  goodsRequests  GoodsRequest[]
+  returnRequests ReturnRequest[]
+  allocations    Allocation[]
+  transfers      Transfer[]
+  resaleListings ResaleListing[]
+  Sale           Sale[]
+  InventoryLot   InventoryLot[]
+
+  @@index([status, stage])
+  @@map("campaigns")
+}
+
+model CampaignLine {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  plannedQty Int
+  unitPrice  Decimal? @db.Decimal(18, 2)
+  currency   String   @default("VND") @db.VarChar(3)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([campaignId, productId])
+  @@map("campaign_lines")
+}
+
+model CampaignStageLog {
+  id         String        @id @default(cuid())
+  campaignId String
+  campaign   Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  stage      CampaignStage
+  actorId    String?
+  actor      User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  note       String?       @db.VarChar(500)
+  occurredAt DateTime      @default(now())
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([campaignId, occurredAt])
+  @@map("campaign_stage_logs")
+}
+
+// Purchasing-power survey for a campaign (P3.6).
+model CampaignSurvey {
+  id          String    @id @default(cuid())
+  campaignId  String
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  title       String?   @db.VarChar(200)
+  payload     Json?
+  result      Json?
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([campaignId])
+  @@map("campaign_surveys")
+}
+
+model CampaignRisk {
+  id           String    @id @default(cuid())
+  campaignId   String
+  campaign     Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  kind         RiskKind
+  level        RiskLevel
+  note         String?   @db.VarChar(1000)
+  mitigation   String?   @db.VarChar(1000)
+  recordedById String
+  recordedBy   User      @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([campaignId])
+  @@map("campaign_risks")
+}
+
+enum ParticipationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+// Capacity is DB-enforced: a trigger in the migration rejects inserts/updates
+// where SUM(unitsBought) over the campaign would exceed capacity (P3.6).
+model Participation {
+  id          String              @id @default(cuid())
+  campaignId  String
+  campaign    Campaign            @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  amountPaid  Decimal             @default(0) @db.Decimal(18, 2)
+  currency    String              @default("VND") @db.VarChar(3)
+  unitsBought Int                 @default(0) // integer only
+  status      ParticipationStatus @default(PENDING)
+  joinedAt    DateTime            @default(now())
+  note        String?             @db.VarChar(500)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  lines          ParticipationLine[]
+  returnRequests ReturnRequest[]
+
+  @@unique([campaignId, userId])
+  @@index([userId])
+  @@map("participations")
+}
+
+model ParticipationLine {
+  id              String        @id @default(cuid())
+  participationId String
+  participation   Participation @relation(fields: [participationId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  unitsBought     Int
+  unitPrice       Decimal       @db.Decimal(18, 2)
+  currency        String        @default("VND") @db.VarChar(3)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([participationId, productId])
+  @@map("participation_lines")
+}
+
+enum GoodsRequestStatus {
+  OPEN
+  APPROVED
+  REJECTED
+  CANCELLED
+  FULFILLED
+}
+
+// A store requests goods from a campaign (P3.6).
+model GoodsRequest {
+  id          String             @id @default(cuid())
+  campaignId  String
+  campaign    Campaign           @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  storeId     String
+  store       Store              @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  quantity    Int
+  note        String?            @db.VarChar(500)
+  status      GoodsRequestStatus @default(OPEN)
+  handledById String?
+  handledBy   User?              @relation(fields: [handledById], references: [id], onDelete: SetNull)
+  decidedAt   DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  allocations Allocation[]
+
+  @@index([campaignId, status])
+  @@index([storeId])
+  @@map("goods_requests")
+}
+
+enum ReturnRequestStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  RETURNED
+  CANCELLED
+}
+
+// 45-day + 3% return program (D5) at request level; money lands in P3.9.
+model ReturnRequest {
+  id              String              @id @default(cuid())
+  campaignId      String
+  campaign        Campaign            @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  storeId         String?
+  store           Store?              @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  participationId String?
+  participation   Participation?      @relation(fields: [participationId], references: [id], onDelete: SetNull)
+  quantity        Int
+  reason          String?             @db.VarChar(1000)
+  status          ReturnRequestStatus @default(REQUESTED)
+  decidedById     String?
+  decidedBy       User?               @relation(fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt       DateTime?
+  processedAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([campaignId, status])
+  @@map("return_requests")
+}
+
+// ---------------------------------------------------------------------------
+// P3.7 — Resale (bán giùm)
+// ---------------------------------------------------------------------------
+
+enum RetailerStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DISABLED
+}
+
+model RetailerRegistration {
+  id           String         @id @default(cuid())
+  userId       String         @unique
+  user         User           @relation("RetailerOwner", fields: [userId], references: [id], onDelete: Restrict)
+  businessName String?        @db.VarChar(191)
+  taxId        String?        @db.VarChar(32)
+  phone        String?        @db.VarChar(20)
+  status       RetailerStatus @default(PENDING)
+  reviewedById String?
+  reviewedBy   User?          @relation("RetailerReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+  note         String?        @db.VarChar(500)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@map("retailer_registrations")
+}
+
+model Store {
+  id        String    @id @default(cuid())
+  ownerId   String?
+  owner     User?     @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  name      String    @db.VarChar(191)
+  code      String?   @unique @db.VarChar(32)
+  province  String?   @db.VarChar(100)
+  district  String?   @db.VarChar(100)
+  address   String?   @db.VarChar(500)
+  phone     String?   @db.VarChar(20)
+  isActive  Boolean   @default(true)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  goodsRequests  GoodsRequest[]
+  returnRequests ReturnRequest[]
+  allocations    Allocation[]
+  transfersFrom  Transfer[]      @relation("TransferFrom")
+  transfersTo    Transfer[]      @relation("TransferTo")
+  resaleListings ResaleListing[]
+  sales          Sale[]
+  saleImports    SaleImport[]
+
+  @@index([ownerId])
+  @@map("stores")
+}
+
+enum AllocationStatus {
+  ALLOCATED
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+model Allocation {
+  id             String           @id @default(cuid())
+  campaignId     String
+  campaign       Campaign         @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  storeId        String
+  store          Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  goodsRequestId String?
+  goodsRequest   GoodsRequest?    @relation(fields: [goodsRequestId], references: [id], onDelete: SetNull)
+  allocatedById  String
+  allocatedBy    User             @relation(fields: [allocatedById], references: [id], onDelete: Restrict)
+  status         AllocationStatus @default(ALLOCATED)
+  allocatedAt    DateTime         @default(now())
+  receivedAt     DateTime?
+  note           String?          @db.VarChar(500)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  lines AllocationLine[]
+
+  @@index([campaignId])
+  @@index([storeId, status])
+  @@map("allocations")
+}
+
+model AllocationLine {
+  id           String     @id @default(cuid())
+  allocationId String
+  allocation   Allocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity     Int
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([allocationId, productId])
+  @@map("allocation_lines")
+}
+
+enum TransferStatus {
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+// Store-to-store transfer of campaign goods (P3.7).
+model Transfer {
+  id           String         @id @default(cuid())
+  fromStoreId  String
+  fromStore    Store          @relation("TransferFrom", fields: [fromStoreId], references: [id], onDelete: Restrict)
+  toStoreId    String
+  toStore      Store          @relation("TransferTo", fields: [toStoreId], references: [id], onDelete: Restrict)
+  campaignId   String?
+  campaign     Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  quantity     Int
+  status       TransferStatus @default(IN_TRANSIT)
+  sentById     String?
+  sentBy       User?          @relation("TransferSender", fields: [sentById], references: [id], onDelete: SetNull)
+  sentAt       DateTime       @default(now())
+  receivedById String?
+  receivedBy   User?          @relation("TransferReceiver", fields: [receivedById], references: [id], onDelete: SetNull)
+  receivedAt   DateTime?
+  note         String?        @db.VarChar(500)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  receipts TransferReceipt[]
+
+  @@index([campaignId])
+  @@map("transfers")
+}
+
+model TransferReceipt {
+  id           String      @id @default(cuid())
+  transferId   String
+  transfer     Transfer    @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  fileObjectId String?
+  fileObject   FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  uploadedById String?
+  uploadedBy   User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  note         String?     @db.VarChar(500)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([transferId])
+  @@map("transfer_receipts")
+}
+
+// Retail offer derived from a lot/campaign: price + retailer earning (P3.7).
+model ResaleListing {
+  id                  String        @id @default(cuid())
+  campaignId          String?
+  campaign            Campaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  productId           String
+  product             Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  lotId               String?
+  lot                 InventoryLot? @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  storeId             String?
+  store               Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  title               String?       @db.VarChar(200)
+  salePrice           Decimal       @db.Decimal(18, 2)
+  retailerShareAmount Decimal?      @db.Decimal(18, 2)
+  currency            String        @default("VND") @db.VarChar(3)
+  quantityRemaining   Int
+  isActive            Boolean       @default(true)
+  deletedAt           DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([productId, isActive])
+  @@map("resale_listings")
+}
+
+// ---------------------------------------------------------------------------
+// P3.8 — Sales & inventory
+// ---------------------------------------------------------------------------
+
+model Sale {
+  id          String    @id @default(cuid())
+  storeId     String
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  campaignId  String?
+  campaign    Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  soldById    String?
+  soldBy      User?     @relation(fields: [soldById], references: [id], onDelete: SetNull)
+  soldAt      DateTime  @default(now())
+  totalAmount Decimal   @db.Decimal(18, 2)
+  currency    String    @default("VND") @db.VarChar(3)
+  note        String?   @db.VarChar(500)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  lines SaleLine[]
+
+  @@index([storeId, soldAt])
+  @@index([campaignId])
+  @@map("sales")
+}
+
+model SaleLine {
+  id        String   @id @default(cuid())
+  saleId    String
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Int
+  unitPrice Decimal  @db.Decimal(18, 2)
+  currency  String   @default("VND") @db.VarChar(3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([saleId])
+  @@map("sale_lines")
+}
+
+enum SaleImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
+// CSV import batch; fileHash unique blocks re-importing the same file (P3.8).
+model SaleImport {
+  id           String           @id @default(cuid())
+  fileName     String           @db.VarChar(255)
+  // SHA-256 of the file content; unique = dedupe at DB level.
+  fileHash     String           @unique @db.VarChar(64)
+  storeId      String
+  store        Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  totalRows    Int
+  successRows  Int              @default(0)
+  failedRows   Int              @default(0)
+  status       SaleImportStatus @default(PENDING)
+  uploadedById String?
+  uploadedBy   User?            @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@map("sale_imports")
+}
+
+model InventoryLot {
+  id         String    @id @default(cuid())
+  productId  String
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  lotNo      String?   @db.VarChar(64)
+  expiryAt   DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  movements      InventoryMovement[]
+  balances       InventoryBalance[]
+  stockCounts    StockCount[]
+  inspections    Inspection[]
+  qcReports      QcReport[]
+  resaleListings ResaleListing[]
+
+  @@index([productId])
+  @@map("inventory_lots")
+}
+
+enum MovementType {
+  RECEIVE
+  ISSUE
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUST
+}
+
+// Append-only stock ledger (P3.8): a trigger in the migration blocks UPDATE;
+// stock = SUM(quantity). storeId null = central warehouse.
+model InventoryMovement {
+  id            String       @id @default(cuid())
+  lotId         String
+  lot           InventoryLot @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  // Raw store reference; null = central. Kept loose so balances stay keyable.
+  storeId       String?      @db.VarChar(64)
+  type          MovementType
+  // Signed: positive in, negative out.
+  quantity      Int
+  referenceType String?      @db.VarChar(32)
+  referenceId   String?      @db.VarChar(64)
+  note          String?      @db.VarChar(500)
+  createdById   String
+  createdBy     User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([lotId, createdAt])
+  @@index([storeId])
+  @@map("inventory_movements")
+}
+
+// Aggregate kept in the same transaction as movements (P3.8).
+// storeId "" = central warehouse so the unique key works with NOT NULL.
+model InventoryBalance {
+  id        String       @id @default(cuid())
+  lotId     String
+  lot       InventoryLot @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  storeId   String       @default("") @db.VarChar(64)
+  quantity  Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([lotId, storeId])
+  @@index([storeId])
+  @@map("inventory_balances")
+}
+
+model StockCount {
+  id              String       @id @default(cuid())
+  lotId           String
+  lot             InventoryLot @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  storeId         String?      @db.VarChar(64) // null = central
+  countedQuantity Int
+  countedById     String
+  countedBy       User         @relation(fields: [countedById], references: [id], onDelete: Restrict)
+  countedAt       DateTime     @default(now())
+  note            String?      @db.VarChar(500)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([lotId])
+  @@map("stock_counts")
+}
+
+enum InspectionResult {
+  PASSED
+  PARTIAL
+  FAILED
+}
+
+model Inspection {
+  id            String           @id @default(cuid())
+  shipmentId    String?
+  shipment      Shipment?        @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  lotId         String?
+  lot           InventoryLot?    @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  result        InspectionResult
+  inspectedById String
+  inspectedBy   User             @relation(fields: [inspectedById], references: [id], onDelete: Restrict)
+  inspectedAt   DateTime         @default(now())
+  note          String?          @db.VarChar(1000)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  photos InspectionPhoto[]
+
+  @@index([shipmentId])
+  @@index([lotId])
+  @@map("inspections")
+}
+
+model InspectionPhoto {
+  id           String      @id @default(cuid())
+  inspectionId String
+  inspection   Inspection  @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  fileObjectId String?
+  fileObject   FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  sortIndex    Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([inspectionId])
+  @@map("inspection_photos")
+}
+
+model QcReport {
+  id          String        @id @default(cuid())
+  orderId     String?
+  order       Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  lotId       String?
+  lot         InventoryLot? @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  passed      Boolean
+  checkedById String
+  checkedBy   User          @relation(fields: [checkedById], references: [id], onDelete: Restrict)
+  checkedAt   DateTime      @default(now())
+  // Checklist answers (template item -> pass/fail/notes).
+  items       Json?
+  note        String?       @db.VarChar(1000)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([orderId])
+  @@map("qc_reports")
+}
+
+model QcChecklistTemplate {
+  id        String   @id @default(cuid())
+  name      String   @db.VarChar(191)
+  // [{ key, label, required }, ...]
+  items     Json
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("qc_checklist_templates")
 }
