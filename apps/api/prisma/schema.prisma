@@ -117,6 +117,25 @@ model User {
   qcReportsDone                 QcReport[]
   ContractParty                 ContractParty[]
 
+  // Money (P3.9).
+  wallet                       Wallet?
+  ledgerTransactionsCreated    LedgerTransaction[]
+  paymentsMade                 Payment[]             @relation("PaymentPayer")
+  paymentsConfirmed            Payment[]             @relation("PaymentConfirmer")
+  paymentProofsUploaded        PaymentProof[]
+  payoutsApproved              Payout[]              @relation("PayoutApprover")
+  payoutProofsUploaded         PayoutProof[]
+  bankStatementImportsUploaded BankStatementImport[]
+  reconciliationRunsRun        ReconciliationRun[]
+  reconciliationItemsResolved  ReconciliationItem[]  @relation("ReconResolver")
+  // Misc (P3.10).
+  fundingApplications          FundingApplication[]
+  fundingApplicationsReviewed  FundingApplication[]  @relation("FundingReviewer")
+  crmActivitiesBy              CrmActivity[]
+  showroomVisitsBy             ShowroomVisit[]
+  reportsGenerated             Report[]
+  crmContactsOwned             CrmContact[]
+
   @@map("users")
 }
 
@@ -321,7 +340,9 @@ model BankAccount {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  refunds Refund[]
+  refunds     Refund[]
+  payouts     Payout[]
+  withdrawals Withdrawal[]
 
   @@index([userId])
   @@index([organizationId])
@@ -472,6 +493,10 @@ model FileObject {
   signedContracts            Contract[]
   transferReceipts           TransferReceipt[]
   inspectionPhotos           InspectionPhoto[]
+  // P3.9 file references.
+  paymentProofs              PaymentProof[]
+  payoutProofs               PayoutProof[]
+  invoices                   Invoice[]
 
   @@index([ownerType, ownerId, createdAt])
   @@index([sha256])
@@ -930,6 +955,7 @@ model Order {
   dealRoom    DealRoom?
   qcReports   QcReport[]
   LockedTerms LockedTerms?
+  invoices    Invoice[]
 
   @@index([buyerId, status])
   @@index([supplierId, status])
@@ -1804,6 +1830,8 @@ model Store {
   resaleListings ResaleListing[]
   sales          Sale[]
   saleImports    SaleImport[]
+  crmContacts    CrmContact[]
+  showroomVisits ShowroomVisit[]
 
   @@index([ownerId])
   @@map("stores")
@@ -2156,4 +2184,619 @@ model QcChecklistTemplate {
   updatedAt DateTime @updatedAt
 
   @@map("qc_checklist_templates")
+}
+
+// ---------------------------------------------------------------------------
+// P3.9 — Money: wallets, double-entry ledger, payments, payouts, recon.
+// D13: payments are manual P2P bank transfers with uploaded proof; admin
+// confirms against imported bank statement lines. The ledger is the source of
+// truth for money: LedgerEntry rows are immutable (DB trigger blocks
+// UPDATE/DELETE unless the operator sets @cvc_ledger_unlocked) and every
+// LedgerTransaction must balance (SUM debit = SUM credit, DB-enforced).
+// ---------------------------------------------------------------------------
+
+enum WalletStatus {
+  ACTIVE
+  FROZEN
+}
+
+model Wallet {
+  id        String       @id @default(cuid())
+  userId    String       @unique
+  user      User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  currency  String       @default("VND") @db.VarChar(3)
+  // Never goes negative: CHECK in the migration + service-level guard.
+  balance   Decimal      @default(0) @db.Decimal(18, 2)
+  status    WalletStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  accounts    LedgerAccount[]
+  withdrawals Withdrawal[]
+
+  @@map("wallets")
+}
+
+enum LedgerAccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+model LedgerAccount {
+  id        String            @id @default(cuid())
+  // Stable code, e.g. "CVC-CASH", "USR-{userId}".
+  code      String            @unique @db.VarChar(64)
+  name      String            @db.VarChar(191)
+  type      LedgerAccountType
+  walletId  String?
+  wallet    Wallet?           @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  currency  String            @default("VND") @db.VarChar(3)
+  isActive  Boolean           @default(true)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  entries LedgerEntry[]
+
+  @@map("ledger_accounts")
+}
+
+enum LedgerTransactionType {
+  DEPOSIT
+  PAYMENT
+  PAYOUT
+  FEE
+  REFUND
+  ADJUSTMENT
+  SETTLEMENT
+  OTHER
+}
+
+enum LedgerTransactionStatus {
+  DRAFT
+  POSTED
+  VOID
+}
+
+model LedgerTransaction {
+  id              String                  @id @default(cuid())
+  // How many entries this transaction carries (normally 2). The DB trigger
+  // `ledger_entries_balanced` checks debit/credit sums once the count is met.
+  expectedEntries Int                     @default(2)
+  type            LedgerTransactionType   @default(OTHER)
+  status          LedgerTransactionStatus @default(DRAFT)
+  currency        String                  @default("VND") @db.VarChar(3)
+  postedAt        DateTime?
+  // Free-form business reference, e.g. payment/payout/campaign id.
+  refType         String?                 @db.VarChar(32)
+  refId           String?                 @db.VarChar(64)
+  note            String?                 @db.VarChar(500)
+  createdById     String
+  createdBy       User                    @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  entries LedgerEntry[]
+
+  @@index([refType, refId])
+  @@index([status, postedAt])
+  @@map("ledger_transactions")
+}
+
+enum LedgerSide {
+  DEBIT
+  CREDIT
+}
+
+// Immutable money movement rows (P3.9): triggers in the migration block
+// UPDATE and DELETE unless @cvc_ledger_unlocked is set for the session.
+// amount > 0 is enforced by a CHECK constraint; side carries the direction.
+model LedgerEntry {
+  id            String            @id @default(cuid())
+  transactionId String
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       LedgerAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  side          LedgerSide
+  amount        Decimal           @db.Decimal(18, 2)
+  refType       String?           @db.VarChar(32)
+  refId         String?           @db.VarChar(64)
+  note          String?           @db.VarChar(500)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([transactionId])
+  @@index([accountId])
+  @@map("ledger_entries")
+}
+
+// Bank account that receives customer money (CVC's own accounts, D13).
+// Same encryption pattern as BankAccount: enc + last4 + sha256 hash for
+// uniqueness without decryption.
+model ReceivingAccount {
+  id             String   @id @default(cuid())
+  bankName       String   @db.VarChar(100)
+  holderName     String   @db.VarChar(191)
+  accountNoEnc   String   @db.VarChar(255)
+  accountNoLast4 String   @db.VarChar(4)
+  accountNoHash  String   @unique @db.VarChar(64)
+  bankCode       String?  @db.VarChar(32)
+  isDefault      Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  payments Payment[]
+
+  @@map("receiving_accounts")
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  REFUNDED
+}
+
+// Manual transfer from a user to a receiving account (D13).
+model Payment {
+  id                 String           @id @default(cuid())
+  paymentNo          String           @unique @db.VarChar(32) // CVC-PAY-...
+  userId             String
+  user               User             @relation("PaymentPayer", fields: [userId], references: [id], onDelete: Restrict)
+  // Loose business purpose, e.g. order deposit / campaign participation.
+  purposeType        String?          @db.VarChar(32)
+  purposeId          String?          @db.VarChar(64)
+  receivingAccountId String
+  receivingAccount   ReceivingAccount @relation(fields: [receivingAccountId], references: [id], onDelete: Restrict)
+  amount             Decimal          @db.Decimal(18, 2)
+  currency           String           @default("VND") @db.VarChar(3)
+  status             PaymentStatus    @default(PENDING)
+  confirmedById      String?
+  confirmedBy        User?            @relation("PaymentConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+  receivedAt         DateTime? // when the bank transfer was made
+  confirmedAt        DateTime?
+  note               String?          @db.VarChar(500)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  proofs         PaymentProof[]
+  statementLines BankStatementLine[]
+
+  @@index([userId, status])
+  @@index([purposeType, purposeId])
+  @@index([status, createdAt])
+  @@map("payments")
+}
+
+model PaymentProof {
+  id           String      @id @default(cuid())
+  paymentId    String
+  payment      Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  fileObjectId String?
+  fileObject   FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  // SHA-256 of the uploaded proof image: blocks reusing the same picture
+  // across payments (checked in service; hash kept for dedupe).
+  sha256       String      @db.VarChar(64)
+  uploadedById String?
+  uploadedBy   User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  note         String?     @db.VarChar(255)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([paymentId, sha256])
+  @@index([sha256])
+  @@map("payment_proofs")
+}
+
+enum PayoutStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// Manual disbursement from CVC to a payee (supplier/retailer/participant, D13).
+model Payout {
+  id            String       @id @default(cuid())
+  payoutNo      String       @unique @db.VarChar(32) // CVC-PO-...
+  // Loose payee reference: supplier | retailer | participant | cvc.
+  payeeType     String       @db.VarChar(32)
+  payeeId       String       @db.VarChar(64)
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  amount        Decimal      @db.Decimal(18, 2)
+  currency      String       @default("VND") @db.VarChar(3)
+  status        PayoutStatus @default(PENDING)
+  approvedById  String?
+  approvedBy    User?        @relation("PayoutApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt    DateTime?
+  processedAt   DateTime?
+  note          String?      @db.VarChar(500)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  proofs         PayoutProof[]
+  statementLines BankStatementLine[]
+  withdrawals    Withdrawal[]
+  settlements    Settlement[]
+
+  @@index([payeeType, payeeId])
+  @@index([status])
+  @@map("payouts")
+}
+
+model PayoutProof {
+  id           String      @id @default(cuid())
+  payoutId     String
+  payout       Payout      @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  fileObjectId String?
+  fileObject   FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  sha256       String      @db.VarChar(64)
+  uploadedById String?
+  uploadedBy   User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  note         String?     @db.VarChar(255)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([payoutId, sha256])
+  @@map("payout_proofs")
+}
+
+enum BankStatementImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// Imported bank statement file (CSV/PDF export); fileHash unique blocks
+// importing the same statement twice (same dedupe pattern as SaleImport).
+model BankStatementImport {
+  id           String                    @id @default(cuid())
+  fileName     String                    @db.VarChar(255)
+  fileHash     String                    @unique @db.VarChar(64)
+  status       BankStatementImportStatus @default(PENDING)
+  totalLines   Int                       @default(0)
+  importedById String?
+  importedBy   User?                     @relation(fields: [importedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+
+  lines BankStatementLine[]
+
+  @@map("bank_statement_imports")
+}
+
+enum BankStatementLineStatus {
+  UNMATCHED
+  MATCHED
+  IGNORED
+}
+
+model BankStatementLine {
+  id               String                  @id @default(cuid())
+  importId         String
+  import           BankStatementImport     @relation(fields: [importId], references: [id], onDelete: Cascade)
+  lineNo           Int
+  transactionDate  DateTime
+  description      String                  @db.VarChar(500)
+  // Signed: credit (money in) positive, debit negative.
+  amount           Decimal                 @db.Decimal(18, 2)
+  reference        String?                 @db.VarChar(100)
+  matchedPaymentId String?
+  matchedPayment   Payment?                @relation(fields: [matchedPaymentId], references: [id], onDelete: SetNull)
+  matchedPayoutId  String?
+  matchedPayout    Payout?                 @relation(fields: [matchedPayoutId], references: [id], onDelete: SetNull)
+  status           BankStatementLineStatus @default(UNMATCHED)
+  matchedAt        DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  @@unique([importId, lineNo])
+  @@index([status])
+  @@map("bank_statement_lines")
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// User request to withdraw wallet balance; payoutId links the executed payout.
+model Withdrawal {
+  id            String           @id @default(cuid())
+  walletId      String
+  wallet        Wallet           @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  amount        Decimal          @db.Decimal(18, 2)
+  currency      String           @default("VND") @db.VarChar(3)
+  bankAccountId String?
+  bankAccount   BankAccount?     @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  status        WithdrawalStatus @default(PENDING)
+  payoutId      String?
+  payout        Payout?          @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+  processedAt   DateTime?
+  note          String?          @db.VarChar(500)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([walletId, status])
+  @@map("withdrawals")
+}
+
+enum SettlementStatus {
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+// Period settlement with an owner (retailer/supplier) for consignment sales.
+model Settlement {
+  id           String           @id @default(cuid())
+  settlementNo String           @unique @db.VarChar(32) // CVC-STL-...
+  ownerType    String           @db.VarChar(32)
+  ownerId      String           @db.VarChar(64)
+  periodStart  DateTime
+  periodEnd    DateTime
+  amount       Decimal          @db.Decimal(18, 2)
+  currency     String           @default("VND") @db.VarChar(3)
+  status       SettlementStatus @default(PENDING)
+  payoutId     String?
+  payout       Payout?          @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+  note         String?          @db.VarChar(500)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([ownerType, ownerId])
+  @@map("settlements")
+}
+
+enum ReconciliationRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// One reconciliation pass comparing payments/payouts vs bank statements.
+model ReconciliationRun {
+  id         String                  @id @default(cuid())
+  scope      String                  @default("payments") @db.VarChar(32)
+  ranById    String?
+  ranBy      User?                   @relation(fields: [ranById], references: [id], onDelete: SetNull)
+  startedAt  DateTime                @default(now())
+  finishedAt DateTime?
+  status     ReconciliationRunStatus @default(RUNNING)
+  // Aggregate result, e.g. { checked: 120, matched: 115, unmatched: 5 }.
+  summary    Json?
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+
+  items ReconciliationItem[]
+
+  @@index([status, startedAt])
+  @@map("reconciliation_runs")
+}
+
+enum ReconciliationItemKind {
+  MISSING
+  MISMATCH
+  DUPLICATE
+  UNMATCHED
+}
+
+enum ReconciliationItemStatus {
+  OPEN
+  RESOLVED
+  IGNORED
+}
+
+model ReconciliationItem {
+  id           String                   @id @default(cuid())
+  runId        String
+  run          ReconciliationRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  kind         ReconciliationItemKind
+  refType      String?                  @db.VarChar(32)
+  refId        String?                  @db.VarChar(64)
+  detail       Json?
+  status       ReconciliationItemStatus @default(OPEN)
+  resolvedById String?
+  resolvedBy   User?                    @relation("ReconResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt   DateTime?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+
+  @@index([runId, kind])
+  @@index([status])
+  @@map("reconciliation_items")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  CANCELLED
+}
+
+model Invoice {
+  id           String        @id @default(cuid())
+  invoiceNo    String        @unique @db.VarChar(32) // CVC-INV-...
+  ownerType    String        @db.VarChar(32)
+  ownerId      String        @db.VarChar(64)
+  orderId      String?
+  order        Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  amount       Decimal       @db.Decimal(18, 2)
+  currency     String        @default("VND") @db.VarChar(3)
+  status       InvoiceStatus @default(DRAFT)
+  issuedAt     DateTime?
+  fileObjectId String?
+  fileObject   FileObject?   @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  note         String?       @db.VarChar(500)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([ownerType, ownerId])
+  @@index([status])
+  @@map("invoices")
+}
+
+enum ExchangeRateSource {
+  MANUAL
+  AUTO
+}
+
+model ExchangeRate {
+  id          String             @id @default(cuid())
+  baseCode    String             @db.VarChar(3) // e.g. CNY
+  quoteCode   String             @db.VarChar(3) // e.g. VND
+  rate        Decimal            @db.Decimal(18, 8)
+  effectiveAt DateTime
+  source      ExchangeRateSource @default(MANUAL)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([baseCode, quoteCode, effectiveAt])
+  @@map("exchange_rates")
+}
+
+// ---------------------------------------------------------------------------
+// P3.10 — Misc: funding applications, CRM, showroom visits, saved reports.
+// (Notification, NotificationPreference, AuditLog, SystemSetting,
+// IdempotencyKey already exist from P2.)
+// ---------------------------------------------------------------------------
+
+enum FundingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model FundingApplication {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  amountRequested Decimal       @db.Decimal(18, 2)
+  currency        String        @default("VND") @db.VarChar(3)
+  purpose         String        @db.VarChar(1000)
+  status          FundingStatus @default(PENDING)
+  reviewedById    String?
+  reviewedBy      User?         @relation("FundingReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt      DateTime?
+  reviewNote      String?       @db.VarChar(500)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@map("funding_applications")
+}
+
+enum CrmActivityType {
+  CALL
+  EMAIL
+  VISIT
+  NOTE
+  OTHER
+}
+
+model CrmContact {
+  id        String    @id @default(cuid())
+  name      String    @db.VarChar(191)
+  phone     String?   @db.VarChar(20)
+  email     String?   @db.VarChar(191)
+  // buyer | supplier | retailer | lead | ...
+  type      String    @default("lead") @db.VarChar(32)
+  // Optional link to a platform account.
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  storeId   String?
+  store     Store?    @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  notes     String?   @db.Text
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  activities CrmActivity[]
+  visits     ShowroomVisit[]
+
+  @@index([type])
+  @@index([phone])
+  @@map("crm_contacts")
+}
+
+model CrmActivity {
+  id         String          @id @default(cuid())
+  contactId  String
+  contact    CrmContact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  type       CrmActivityType
+  subject    String          @db.VarChar(200)
+  content    String?         @db.Text
+  occurredAt DateTime        @default(now())
+  actorId    String?
+  actor      User?           @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([contactId, occurredAt])
+  @@map("crm_activities")
+}
+
+enum ShowroomVisitStatus {
+  SCHEDULED
+  DONE
+  CANCELLED
+  NO_SHOW
+}
+
+model ShowroomVisit {
+  id          String              @id @default(cuid())
+  contactId   String
+  contact     CrmContact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  storeId     String?
+  store       Store?              @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  scheduledAt DateTime
+  visitedAt   DateTime?
+  status      ShowroomVisitStatus @default(SCHEDULED)
+  note        String?             @db.VarChar(500)
+  actorId     String?
+  actor       User?               @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([contactId])
+  @@index([scheduledAt])
+  @@map("showroom_visits")
+}
+
+enum ReportStatus {
+  DRAFT
+  READY
+  FAILED
+}
+
+// Saved/parameterized report definition (revenue, stock, reconciliation...).
+model Report {
+  id            String       @id @default(cuid())
+  name          String       @db.VarChar(191)
+  type          String       @db.VarChar(32) // revenue | stock | recon | ...
+  params        Json?
+  result        Json?
+  status        ReportStatus @default(READY)
+  generatedById String?
+  generatedBy   User?        @relation(fields: [generatedById], references: [id], onDelete: SetNull)
+  generatedAt   DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([type])
+  @@map("reports")
 }
