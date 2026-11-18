@@ -29,6 +29,7 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { RedisModule } from './redis/redis.module';
 import { SearchModule } from './search/search.module';
 import { SettingsModule } from './settings/settings.module';
+import { SourcingModule } from './sourcing/sourcing.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 
 @Module({
@@ -74,6 +75,7 @@ import { SuppliersModule } from './suppliers/suppliers.module';
     CatalogModule,
     SuppliersModule,
     BannersModule,
+    SourcingModule,
   ],
   controllers: [AppController],
   providers: [

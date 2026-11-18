@@ -76,15 +76,17 @@ model User {
   notificationPreference NotificationPreference?
 
   // Catalog/sourcing (P3.2/P3.3): supplier account links, RFQs, orders.
-  supplierAccounts       SupplierAccount?
-  sourcingRequests       SourcingRequest[]
-  orders                 Order[]
-  organizationsOwned     Organization[]
-  quoteSelectionsDecided QuoteSelection[]
-  claimsFiled            Claim[]
-  claimProposals         ClaimProposal[]
-  claimResolutions       ClaimResolution[]
-  shipmentStopsEntered   ShipmentStop[]
+  supplierAccounts         SupplierAccount?
+  sourcingRequests         SourcingRequest[]
+  sourcingRequestsAssigned SourcingRequest[]     @relation("SourcingRequestAssignee")
+  sourcingRequestNotes     SourcingRequestNote[] @relation("SourcingRequestNoteAuthor")
+  orders                   Order[]
+  organizationsOwned       Organization[]
+  quoteSelectionsDecided   QuoteSelection[]
+  claimsFiled              Claim[]
+  claimProposals           ClaimProposal[]
+  claimResolutions         ClaimResolution[]
+  shipmentStopsEntered     ShipmentStop[]
 
   // Deal room / contracts (P3.4/P3.5).
   dealRoomMemberships           DealRoomMember[]
@@ -824,38 +826,64 @@ model PartnerBanner {
 enum SourcingRequestStatus {
   OPEN
   QUOTED
+  SELECTED
   CONVERTED
+  EXPIRED
   CLOSED
   CANCELLED
 }
 
 model SourcingRequest {
-  id          String                @id @default(cuid())
+  id            String                @id @default(cuid())
   // Business number, format "CVC-RFQ-..." (P3.3).
-  requestNo   String                @unique @db.VarChar(32)
-  buyerId     String
-  buyer       User                  @relation(fields: [buyerId], references: [id], onDelete: Restrict)
-  title       String                @db.VarChar(200)
-  content     String?               @db.VarChar(2000)
-  quantity    Int?
+  requestNo     String                @unique @db.VarChar(32)
+  buyerId       String
+  buyer         User                  @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  title         String                @db.VarChar(200)
+  content       String?               @db.VarChar(2000)
+  quantity      Int?
+  // P4.7: target sales market (e.g. "Việt Nam", "EU").
+  market        String?               @db.VarChar(100)
   // Buyer target price for negotiation.
-  targetPrice Decimal?              @db.Decimal(18, 2)
-  currency    String                @default("VND") @db.VarChar(3)
-  expiresAt   DateTime?
-  status      SourcingRequestStatus @default(OPEN)
-  deletedAt   DateTime? // soft delete: quotes/order reference RFQs
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
+  targetPrice   Decimal?              @db.Decimal(18, 2)
+  currency      String                @default("VND") @db.VarChar(3)
+  expiresAt     DateTime?
+  status        SourcingRequestStatus @default(OPEN)
+  // P4.8: sales assignment + SLA (internal only, never in buyer responses).
+  assignedToId  String?
+  assignedTo    User?                 @relation("SourcingRequestAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  slaDueAt      DateTime?
+  slaRemindedAt DateTime?
+  deletedAt     DateTime? // soft delete: quotes/order reference RFQs
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
-  attachments SourcingRequestAttachment[]
-  quotes      Quote[]
-  selection   QuoteSelection?
-  dealRoom    DealRoom?
-  orders      Order[]
+  attachments   SourcingRequestAttachment[]
+  quotes        Quote[]
+  selection     QuoteSelection?
+  dealRoom      DealRoom?
+  orders        Order[]
+  internalNotes SourcingRequestNote[]
 
   @@index([buyerId, status])
   @@index([status])
+  @@index([assignedToId, status])
+  @@index([slaDueAt])
   @@map("sourcing_requests")
+}
+
+// P4.8: sales-only internal notes. Never returned to the buyer.
+model SourcingRequestNote {
+  id        String          @id @default(cuid())
+  requestId String
+  request   SourcingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User            @relation("SourcingRequestNoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  body      String          @db.VarChar(2000)
+  createdAt DateTime        @default(now())
+
+  @@index([requestId])
+  @@map("sourcing_request_notes")
 }
 
 model SourcingRequestAttachment {

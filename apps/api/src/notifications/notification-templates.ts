@@ -53,4 +53,32 @@ export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
         'Mật khẩu tài khoản CVC của bạn vừa được thay đổi. Nếu không phải bạn, hãy đặt lại mật khẩu ngay.',
     }),
   },
+  // P4.7/P4.8 — sourcing requests: new request to sales, assignment, SLA.
+  'sourcing.request_created': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Yêu cầu tìm nguồn mới',
+      body: `${String(data.requestNo ?? '')} — ${String(data.title ?? '')} (SL: ${
+        data.quantity ?? '—'
+      }). Cần tiếp nhận và phân công xử lý.`,
+    }),
+  },
+  'sourcing.request_assigned': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Bạn được phân công yêu cầu tìm nguồn',
+      body: `${String(data.requestNo ?? '')} — ${String(data.title ?? '')}${
+        data.slaDueAt
+          ? ` (hạn xử lý: ${new Date(String(data.slaDueAt)).toLocaleString('vi-VN')})`
+          : ''
+      }.`,
+    }),
+  },
+  'sourcing.sla_overdue': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Yêu cầu tìm nguồn quá hạn xử lý',
+      body: `${String(data.requestNo ?? '')} — ${String(data.title ?? '')} đã quá hạn SLA. Vui lòng xử lý ngay.`,
+    }),
+  },
 };

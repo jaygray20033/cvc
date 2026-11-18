@@ -57,7 +57,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 | 1 | 0 / 15 | |
 | 2 | 23 / 23 | P2.1–P2.23 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC, KYC ảnh + chống trùng + gate @RequireKyc; dùng chung: AuditLog bất biến + hash chuỗi, File service presigned + magic bytes + ClamAV + thumbnail, Notification engine in-app/email + preference, BullMQ queues + dead-letter + bull-board admin, Socket.IO realtime, Idempotency-Key, SystemSetting runtime config, FULLTEXT search bỏ dấu tiếng Việt) |
 | 3 | 12 / 12 HOÀN TẤT | P3.1–P3.12 xong (tổ chức + TOTP; danh mục/supplier; RFQ → order D7 → shipment/claim/refund; Deal Room + LockedTerms bất biến; hợp đồng version hóa; mua hộ 7 stage + capacity trigger DB; bán giùm; kho append-only + balance; tiền: ledger double-entry bất biến + cân đối qua trigger DB, payment/payout/sao kê/đối soát; CRM + funding + report; 27 CHECK + index; seed dev idempotent từ domain.js + production seed tối thiểu; Gate A đạt, 183/183 test xanh) |
-| 4A | 6 / 22 | P4.1–P4.6 xong (CRUD sản phẩm admin/sales + visibility + gallery + specs; danh mục công khai whitelist không giá/NCC, FULLTEXT bỏ dấu, cache 30s; publish hồ sơ tìm nguồn từ đơn COMPLETED, idempotent, ẩn danh khách/NCC; cổng NCC own-listings + admin duyệt trước khi publish, chặn sửa chéo NCC A/B; tài khoản NCC: tạo + email mời đặt mật khẩu, khóa/mở chặn đăng nhập + thu hồi phiên; banner đối tác CRUD + cửa sổ hiệu lực, hết hạn tự ẩn; 198/198 test xanh) |
+| 4A | 8 / 22 | P4.1–P4.8 xong (CRUD sản phẩm admin/sales + visibility + gallery + specs; danh mục công khai whitelist không giá/NCC, FULLTEXT bỏ dấu, cache 30s; publish hồ sơ tìm nguồn từ đơn COMPLETED, idempotent, ẩn danh khách/NCC; cổng NCC own-listings + admin duyệt trước khi publish, chặn sửa chéo NCC A/B; tài khoản NCC: tạo + email mời đặt mật khẩu, khóa/mở chặn đăng nhập + thu hồi phiên; banner đối tác CRUD + cửa sổ hiệu lực, hết hạn tự ẩn; RFQ khách: tạo kèm ảnh + thị trường + giá mục tiêu + expiresAt, chỉ thấy yêu cầu của mình, hủy trước khi chọn báo giá, hết hạn tự chuyển EXPIRED; sales tiếp nhận: lọc theo status/assignee, phân công + SLA, ghi chú nội bộ không lọt API khách, cron nhắc quá hạn idempotent; 205/205 test xanh) |
 | 4B | 0 / 6 | |
 | 4C | 0 / 10 | |
 | 4D | 0 / 15 | |
@@ -535,12 +535,12 @@ Mỗi module: service + controller + DTO validate + test + Swagger. Logic port t
 ### Máy trạng thái RFQ (`SourcingRequest`)
 `open → quoted → selected → converted_to_order`; nhánh: `open|quoted → expired` (theo `expiresAt`), `* → cancelled` (khách hủy trước khi chọn). **Hết hạn thì không nhận báo giá và không chọn báo giá** (có test trong `vendor-tests.mjs`).
 
-### [ ] P4.7 Khách gửi yêu cầu (`createRFQ`)
+### [x] P4.7 Khách gửi yêu cầu (`createRFQ`)
 - API: `POST /sourcing-requests` (buyer), `GET /sourcing-requests`, `GET /sourcing-requests/:id`, `POST /sourcing-requests/:id/cancel`.
 - Việc làm: nội dung, ảnh (nhiều), thông số, số lượng, giá mục tiêu (tùy chọn), thị trường bán, `expiresAt`; trạng thái ban đầu `open`; thông báo cho sales.
 - DoD: validate số lượng > 0, ảnh hợp lệ; khách chỉ thấy yêu cầu của mình.
 
-### [ ] P4.8 Sales tiếp nhận
+### [x] P4.8 Sales tiếp nhận
 - API: `GET /admin/sourcing-requests?status=&assignee=`, `POST /admin/sourcing-requests/:id/assign`, `POST /admin/sourcing-requests/:id/notes`.
 - Việc làm: phân công sales, ghi chú nội bộ (khách không thấy), hạn xử lý (SLA), nhắc việc khi quá hạn.
 - DoD: ghi chú nội bộ không lọt ra API của khách (test).
