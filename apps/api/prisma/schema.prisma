@@ -741,17 +741,24 @@ model Supplier {
 }
 
 // Platform user linked to a supplier entity (1-1 per user, P3.2).
+enum SupplierAccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 model SupplierAccount {
-  id         String   @id @default(cuid())
-  userId     String   @unique
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String                @id @default(cuid())
+  userId     String                @unique
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   supplierId String
-  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplier   Supplier              @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   // Free-form role label inside the supplier company.
-  title      String?  @db.VarChar(100)
-  isPrimary  Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  title      String?               @db.VarChar(100)
+  isPrimary  Boolean               @default(false)
+  // P4.5: suspended accounts cannot log in; activated again by admin.
+  status     SupplierAccountStatus @default(ACTIVE)
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
 
   @@index([supplierId])
   @@map("supplier_accounts")
@@ -759,18 +766,20 @@ model SupplierAccount {
 
 // Per-supplier cost price for a catalog product (P3.2); internal only.
 model SupplierProduct {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   supplierId   String
-  supplier     Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplier     Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   productId    String
-  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  supplierSku  String?  @db.VarChar(64)
-  costPrice    Decimal  @db.Decimal(18, 2)
-  currency     String   @default("CNY") @db.VarChar(3)
-  moq          Int      @default(1)
+  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplierSku  String?   @db.VarChar(64)
+  costPrice    Decimal   @db.Decimal(18, 2)
+  currency     String    @default("CNY") @db.VarChar(3)
+  moq          Int       @default(1)
   leadTimeDays Int?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  // P4.4/D12: admin approval required before a supplier listing can go public.
+  approvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@unique([supplierId, productId])
   @@map("supplier_products")

@@ -57,7 +57,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 | 1 | 0 / 15 | |
 | 2 | 23 / 23 | P2.1–P2.23 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC, KYC ảnh + chống trùng + gate @RequireKyc; dùng chung: AuditLog bất biến + hash chuỗi, File service presigned + magic bytes + ClamAV + thumbnail, Notification engine in-app/email + preference, BullMQ queues + dead-letter + bull-board admin, Socket.IO realtime, Idempotency-Key, SystemSetting runtime config, FULLTEXT search bỏ dấu tiếng Việt) |
 | 3 | 12 / 12 HOÀN TẤT | P3.1–P3.12 xong (tổ chức + TOTP; danh mục/supplier; RFQ → order D7 → shipment/claim/refund; Deal Room + LockedTerms bất biến; hợp đồng version hóa; mua hộ 7 stage + capacity trigger DB; bán giùm; kho append-only + balance; tiền: ledger double-entry bất biến + cân đối qua trigger DB, payment/payout/sao kê/đối soát; CRM + funding + report; 27 CHECK + index; seed dev idempotent từ domain.js + production seed tối thiểu; Gate A đạt, 183/183 test xanh) |
-| 4A | 3 / 22 | P4.1–P4.3 xong (CRUD sản phẩm admin/sales + visibility + gallery + specs; danh mục công khai whitelist không giá/NCC, FULLTEXT bỏ dấu, cache 30s; publish hồ sơ tìm nguồn từ đơn COMPLETED, idempotent, ẩn danh khách/NCC; 189/189 test xanh) |
+| 4A | 5 / 22 | P4.1–P4.5 xong (CRUD sản phẩm admin/sales + visibility + gallery + specs; danh mục công khai whitelist không giá/NCC, FULLTEXT bỏ dấu, cache 30s; publish hồ sơ tìm nguồn từ đơn COMPLETED, idempotent, ẩn danh khách/NCC; cổng NCC own-listings + admin duyệt trước khi publish, chặn sửa chéo NCC A/B; tài khoản NCC: tạo + email mời đặt mật khẩu, khóa/mở chặn đăng nhập + thu hồi phiên; 193/193 test xanh) |
 | 4B | 0 / 6 | |
 | 4C | 0 / 10 | |
 | 4D | 0 / 15 | |
@@ -515,12 +515,12 @@ Mỗi module: service + controller + DTO validate + test + Swagger. Logic port t
 - API: `POST /admin/sourcing-cases/:id/publish`.
 - DoD: mục công khai không chứa dữ liệu nhận dạng khách/NCC (test).
 
-### [ ] P4.4 Cổng nhà cung cấp
+### [x] P4.4 Cổng nhà cung cấp
 - API: `GET/POST/PUT /supplier/products`, `PATCH /supplier/products/:id/visibility`.
 - Việc làm: NCC chỉ thao tác sản phẩm của mình (`ownProducts`, `saveProduct`); sản phẩm NCC đăng cần admin duyệt trước khi hiện công khai (tùy chọn theo D12).
 - DoD: NCC A không sửa được sản phẩm NCC B.
 
-### [ ] P4.5 Tài khoản nhà cung cấp
+### [x] P4.5 Tài khoản nhà cung cấp
 - API admin: `POST /admin/suppliers`, `POST /admin/supplier-accounts` (`createAccount`), `PATCH /admin/supplier-accounts/:id/status` (`toggleAccount`).
 - Việc làm: tạo NCC + tài khoản đăng nhập (gửi email mời đặt mật khẩu), khóa/mở, ghi audit; NCC bị khóa thì không đăng nhập và báo giá đang mở bị đình chỉ.
 - DoD: test khóa/mở.

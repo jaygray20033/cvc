@@ -151,6 +151,13 @@ export class ProductsService {
         publishedAt: input.visible ? (product.publishedAt ?? new Date()) : product.publishedAt,
       },
     });
+    // Admin publishing a supplier listing doubles as D12 approval (P4.4).
+    if (input.visible) {
+      await this.prisma.supplierProduct.updateMany({
+        where: { productId: id, approvedAt: null },
+        data: { approvedAt: new Date() },
+      });
+    }
     await this.indexProduct(id);
     await this.publicCatalog.bustCache();
     return { id, visible: input.visible };
