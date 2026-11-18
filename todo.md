@@ -57,7 +57,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 | 1 | 0 / 15 | |
 | 2 | 23 / 23 | P2.1–P2.23 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC, KYC ảnh + chống trùng + gate @RequireKyc; dùng chung: AuditLog bất biến + hash chuỗi, File service presigned + magic bytes + ClamAV + thumbnail, Notification engine in-app/email + preference, BullMQ queues + dead-letter + bull-board admin, Socket.IO realtime, Idempotency-Key, SystemSetting runtime config, FULLTEXT search bỏ dấu tiếng Việt) |
 | 3 | 12 / 12 HOÀN TẤT | P3.1–P3.12 xong (tổ chức + TOTP; danh mục/supplier; RFQ → order D7 → shipment/claim/refund; Deal Room + LockedTerms bất biến; hợp đồng version hóa; mua hộ 7 stage + capacity trigger DB; bán giùm; kho append-only + balance; tiền: ledger double-entry bất biến + cân đối qua trigger DB, payment/payout/sao kê/đối soát; CRM + funding + report; 27 CHECK + index; seed dev idempotent từ domain.js + production seed tối thiểu; Gate A đạt, 183/183 test xanh) |
-| 4A | 0 / 22 | |
+| 4A | 3 / 22 | P4.1–P4.3 xong (CRUD sản phẩm admin/sales + visibility + gallery + specs; danh mục công khai whitelist không giá/NCC, FULLTEXT bỏ dấu, cache 30s; publish hồ sơ tìm nguồn từ đơn COMPLETED, idempotent, ẩn danh khách/NCC; 189/189 test xanh) |
 | 4B | 0 / 6 | |
 | 4C | 0 / 10 | |
 | 4D | 0 / 15 | |
@@ -500,17 +500,17 @@ Mỗi module: service + controller + DTO validate + test + Swagger. Logic port t
 
 ## 4A.1 Danh mục và nhà cung cấp
 
-### [ ] P4.1 CRUD sản phẩm
+### [x] P4.1 CRUD sản phẩm
 - API (vai trò): `POST/PUT/DELETE /admin/products` (admin, sales), `PATCH /admin/products/:id/visibility` (tương đương `toggleProduct`), `POST /admin/products/:id/images`.
 - Việc làm: validate SKU unique, MOQ > 0, ảnh qua file service; thứ tự ảnh (gallery); thông số dạng cặp key-value.
 - DoD: test CRUD + phân quyền; ẩn sản phẩm thì biến mất khỏi API công khai.
 
-### [ ] P4.2 Danh mục công khai
+### [x] P4.2 Danh mục công khai
 - API: `GET /public/products?q=&category=&page=`, `GET /public/products/:sku`, `GET /public/categories`.
 - Quy tắc: **không trả** giá mua và thông tin nhà cung cấp (`publicProducts` trong `sourcing-data.js`); tìm kiếm bỏ dấu; cache ngắn; chỉ sản phẩm `visible`.
 - DoD: test khẳng định response không có trường `supplier*`, `priceRef`.
 
-### [ ] P4.3 Hồ sơ tìm nguồn đã hỗ trợ (hiển thị công khai)
+### [x] P4.3 Hồ sơ tìm nguồn đã hỗ trợ (hiển thị công khai)
 - Việc làm: khi một case tìm nguồn hoàn tất, sales có thể "publish" thành mục danh mục (tương đương `publishSourcingCase`, `portfolioProducts`): ẩn danh khách, ẩn NCC, giữ ảnh + thông số.
 - API: `POST /admin/sourcing-cases/:id/publish`.
 - DoD: mục công khai không chứa dữ liệu nhận dạng khách/NCC (test).

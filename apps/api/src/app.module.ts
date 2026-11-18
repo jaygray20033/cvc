@@ -9,6 +9,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AUTH_LIMITS } from './auth/auth.constants';
 import { AuthModule } from './auth/auth.module';
+import { CatalogModule } from './catalog/catalog.module';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
 import { AuditModule } from './common/audit/audit.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -68,6 +69,7 @@ import { SettingsModule } from './settings/settings.module';
     RealtimeModule,
     SettingsModule,
     SearchModule,
+    CatalogModule,
   ],
   controllers: [AppController],
   providers: [

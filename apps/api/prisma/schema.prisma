@@ -135,6 +135,7 @@ model User {
   showroomVisitsBy             ShowroomVisit[]
   reportsGenerated             Report[]
   crmContactsOwned             CrmContact[]
+  publishedSourcingCases       SourcingCase[]        @relation("SourcingCasePublisher")
 
   @@map("users")
 }
@@ -662,15 +663,17 @@ model Product {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  images             ProductImage[]
-  specs              ProductSpec[]
-  supplierProducts   SupplierProduct[]
-  campaignLines      CampaignLine[]
-  participationLines ParticipationLine[]
-  allocationLines    AllocationLine[]
-  saleLines          SaleLine[]
-  resaleListings     ResaleListing[]
-  inventoryLots      InventoryLot[]
+  images              ProductImage[]
+  specs               ProductSpec[]
+  supplierProducts    SupplierProduct[]
+  campaignLines       CampaignLine[]
+  participationLines  ParticipationLine[]
+  allocationLines     AllocationLine[]
+  saleLines           SaleLine[]
+  resaleListings      ResaleListing[]
+  inventoryLots       InventoryLot[]
+  sourcingCaseSources SourcingCase[]      @relation("SourcingCaseSource")
+  sourcingCaseItems   SourcingCase[]      @relation("SourcingCaseItem")
 
   @@index([categoryId, status])
   @@index([status])
@@ -946,16 +949,17 @@ model Order {
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
-  stageLogs   OrderStageLog[]
-  events      OrderEvent[]
-  samples     Sample[]
-  shipments   Shipment[]
-  claims      Claim[]
-  refunds     Refund[]
-  dealRoom    DealRoom?
-  qcReports   QcReport[]
-  LockedTerms LockedTerms?
-  invoices    Invoice[]
+  stageLogs    OrderStageLog[]
+  events       OrderEvent[]
+  samples      Sample[]
+  shipments    Shipment[]
+  claims       Claim[]
+  refunds      Refund[]
+  dealRoom     DealRoom?
+  qcReports    QcReport[]
+  LockedTerms  LockedTerms?
+  invoices     Invoice[]
+  sourcingCase SourcingCase?   @relation("SourcingCaseOrder")
 
   @@index([buyerId, status])
   @@index([supplierId, status])
@@ -2799,4 +2803,31 @@ model Report {
 
   @@index([type])
   @@map("reports")
+}
+
+// ---------------------------------------------------------------------------
+// P4.3 — Published sourcing cases (hồ sơ tìm nguồn đã hỗ trợ, công khai).
+// One link row per completed order that sales "published" as a public catalog
+// item: the case product is a copy of the source product (category, specs,
+// images) with no buyer/supplier identity anywhere.
+// ---------------------------------------------------------------------------
+
+model SourcingCase {
+  id              String   @id @default(cuid())
+  orderId         String   @unique
+  order           Order    @relation("SourcingCaseOrder", fields: [orderId], references: [id], onDelete: Restrict)
+  // The catalog product the case study is based on.
+  sourceProductId String
+  sourceProduct   Product  @relation("SourcingCaseSource", fields: [sourceProductId], references: [id], onDelete: Restrict)
+  // The public catalog item created for the case (sku CVC-CASE-...).
+  caseProductId   String   @unique
+  caseProduct     Product  @relation("SourcingCaseItem", fields: [caseProductId], references: [id], onDelete: Restrict)
+  publishedById   String
+  publishedBy     User     @relation("SourcingCasePublisher", fields: [publishedById], references: [id], onDelete: Restrict)
+  publishedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([sourceProductId])
+  @@map("sourcing_cases")
 }
