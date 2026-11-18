@@ -9,6 +9,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AUTH_LIMITS } from './auth/auth.constants';
 import { AuthModule } from './auth/auth.module';
+import { BannersModule } from './banners/banners.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
 import { AuditModule } from './common/audit/audit.module';
@@ -72,6 +73,7 @@ import { SuppliersModule } from './suppliers/suppliers.module';
     SearchModule,
     CatalogModule,
     SuppliersModule,
+    BannersModule,
   ],
   controllers: [AppController],
   providers: [
