@@ -12,6 +12,8 @@ import {
   adminSourcingRequestQuerySchema,
   AssignSourcingRequestInput,
   assignSourcingRequestSchema,
+  InviteSuppliersInput,
+  inviteSuppliersSchema,
 } from './sourcing-requests.dto';
 import { SourcingRequestsService } from './sourcing-requests.service';
 
@@ -57,5 +59,16 @@ export class AdminSourcingController {
     @Body(new ZodValidationPipe(addSourcingNoteSchema)) body: AddSourcingNoteInput,
   ) {
     return this.requests.addNote(user, id, body);
+  }
+
+  @Post(':id/invite')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mời nhà cung cấp báo giá (P4.9)' })
+  invite(
+    @CurrentUser() user: AccessPayload,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(inviteSuppliersSchema)) body: InviteSuppliersInput,
+  ) {
+    return this.requests.inviteSuppliers(user, id, body);
   }
 }

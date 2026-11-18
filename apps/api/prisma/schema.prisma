@@ -78,8 +78,9 @@ model User {
   // Catalog/sourcing (P3.2/P3.3): supplier account links, RFQs, orders.
   supplierAccounts         SupplierAccount?
   sourcingRequests         SourcingRequest[]
-  sourcingRequestsAssigned SourcingRequest[]     @relation("SourcingRequestAssignee")
-  sourcingRequestNotes     SourcingRequestNote[] @relation("SourcingRequestNoteAuthor")
+  sourcingRequestsAssigned SourcingRequest[]           @relation("SourcingRequestAssignee")
+  sourcingRequestNotes     SourcingRequestNote[]       @relation("SourcingRequestNoteAuthor")
+  sourcingInvitations      SourcingRequestInvitation[] @relation("SourcingRequestInviter")
   orders                   Order[]
   organizationsOwned       Organization[]
   quoteSelectionsDecided   QuoteSelection[]
@@ -636,6 +637,8 @@ model Category {
 
   products Product[]
 
+  sourcingRequests SourcingRequest[]
+
   @@index([parentId])
   @@map("categories")
 }
@@ -732,11 +735,12 @@ model Supplier {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  accounts         SupplierAccount[]
-  supplierProducts SupplierProduct[]
-  quotes           Quote[]
-  orders           Order[]
-  campaigns        Campaign[]
+  accounts            SupplierAccount[]
+  supplierProducts    SupplierProduct[]
+  quotes              Quote[]
+  orders              Order[]
+  campaigns           Campaign[]
+  sourcingInvitations SourcingRequestInvitation[]
 
   @@index([status])
   @@map("suppliers")
@@ -849,6 +853,9 @@ model SourcingRequest {
   currency      String                @default("VND") @db.VarChar(3)
   expiresAt     DateTime?
   status        SourcingRequestStatus @default(OPEN)
+  // P4.9: category lets matching suppliers see the RFQ without an invite.
+  categoryId    String?
+  category      Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   // P4.8: sales assignment + SLA (internal only, never in buyer responses).
   assignedToId  String?
   assignedTo    User?                 @relation("SourcingRequestAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
@@ -864,12 +871,30 @@ model SourcingRequest {
   dealRoom      DealRoom?
   orders        Order[]
   internalNotes SourcingRequestNote[]
+  invitations   SourcingRequestInvitation[]
 
   @@index([buyerId, status])
   @@index([status])
   @@index([assignedToId, status])
   @@index([slaDueAt])
+  @@index([categoryId])
   @@map("sourcing_requests")
+}
+
+// P4.9: sales invites specific suppliers to quote on an RFQ.
+model SourcingRequestInvitation {
+  id          String          @id @default(cuid())
+  requestId   String
+  request     SourcingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  supplierId  String
+  supplier    Supplier        @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  invitedById String
+  invitedBy   User            @relation("SourcingRequestInviter", fields: [invitedById], references: [id], onDelete: Restrict)
+  createdAt   DateTime        @default(now())
+
+  @@unique([requestId, supplierId])
+  @@index([supplierId])
+  @@map("sourcing_request_invitations")
 }
 
 // P4.8: sales-only internal notes. Never returned to the buyer.
@@ -905,25 +930,29 @@ enum QuoteStatus {
   SELECTED
   REJECTED
   EXPIRED
+  // P4.9: supplier pulled the quote before any selection.
+  WITHDRAWN
 }
 
 model Quote {
-  id           String          @id @default(cuid())
-  requestId    String
-  request      SourcingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  id            String          @id @default(cuid())
+  requestId     String
+  request       SourcingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   // Supplier identity is internal-only on public endpoints (P3.2 note).
-  supplierId   String
-  supplier     Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  unitPrice    Decimal         @db.Decimal(18, 2)
-  currency     String          @default("VND") @db.VarChar(3)
-  moq          Int             @default(1)
-  leadTimeDays Int             @default(7)
-  validUntil   DateTime?
-  note         String?         @db.VarChar(1000)
-  status       QuoteStatus     @default(SUBMITTED)
-  selectedAt   DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  supplierId    String
+  supplier      Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  unitPrice     Decimal         @db.Decimal(18, 2)
+  currency      String          @default("VND") @db.VarChar(3)
+  moq           Int             @default(1)
+  leadTimeDays  Int             @default(7)
+  validUntil    DateTime?
+  // P4.9: delivery/incoterm conditions offered by the supplier.
+  deliveryTerms String?         @db.VarChar(500)
+  note          String?         @db.VarChar(1000)
+  status        QuoteStatus     @default(SUBMITTED)
+  selectedAt    DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   selection QuoteSelection?
   orders    Order[] // orders born from this quote (selectedQuote)

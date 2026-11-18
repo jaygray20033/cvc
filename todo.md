@@ -57,7 +57,7 @@ Ký hiệu: `[ ]` chưa làm · `[x]` xong · 🔒 chờ quyết định Phase 0
 | 1 | 0 / 15 | |
 | 2 | 23 / 23 | P2.1–P2.23 xong (auth: email+password, Gmail OTP, mật khẩu, JWT/phiên, 2FA TOTP, rate limit, RBAC 7 vai trò + admin groups, multi-role /me, hồ sơ/địa chỉ/bank, upload + duyệt KYC, KYC ảnh + chống trùng + gate @RequireKyc; dùng chung: AuditLog bất biến + hash chuỗi, File service presigned + magic bytes + ClamAV + thumbnail, Notification engine in-app/email + preference, BullMQ queues + dead-letter + bull-board admin, Socket.IO realtime, Idempotency-Key, SystemSetting runtime config, FULLTEXT search bỏ dấu tiếng Việt) |
 | 3 | 12 / 12 HOÀN TẤT | P3.1–P3.12 xong (tổ chức + TOTP; danh mục/supplier; RFQ → order D7 → shipment/claim/refund; Deal Room + LockedTerms bất biến; hợp đồng version hóa; mua hộ 7 stage + capacity trigger DB; bán giùm; kho append-only + balance; tiền: ledger double-entry bất biến + cân đối qua trigger DB, payment/payout/sao kê/đối soát; CRM + funding + report; 27 CHECK + index; seed dev idempotent từ domain.js + production seed tối thiểu; Gate A đạt, 183/183 test xanh) |
-| 4A | 8 / 22 | P4.1–P4.8 xong (CRUD sản phẩm admin/sales + visibility + gallery + specs; danh mục công khai whitelist không giá/NCC, FULLTEXT bỏ dấu, cache 30s; publish hồ sơ tìm nguồn từ đơn COMPLETED, idempotent, ẩn danh khách/NCC; cổng NCC own-listings + admin duyệt trước khi publish, chặn sửa chéo NCC A/B; tài khoản NCC: tạo + email mời đặt mật khẩu, khóa/mở chặn đăng nhập + thu hồi phiên; banner đối tác CRUD + cửa sổ hiệu lực, hết hạn tự ẩn; RFQ khách: tạo kèm ảnh + thị trường + giá mục tiêu + expiresAt, chỉ thấy yêu cầu của mình, hủy trước khi chọn báo giá, hết hạn tự chuyển EXPIRED; sales tiếp nhận: lọc theo status/assignee, phân công + SLA, ghi chú nội bộ không lọt API khách, cron nhắc quá hạn idempotent; 205/205 test xanh) |
+| 4A | 10 / 22 | P4.1–P4.10 xong (CRUD sản phẩm admin/sales + visibility + gallery + specs; danh mục công khai whitelist không giá/NCC, FULLTEXT bỏ dấu, cache 30s; publish hồ sơ tìm nguồn từ đơn COMPLETED, idempotent, ẩn danh khách/NCC; cổng NCC own-listings + admin duyệt trước khi publish, chặn sửa chéo NCC A/B; tài khoản NCC: tạo + email mời đặt mật khẩu, khóa/mở chặn đăng nhập + thu hồi phiên; banner đối tác CRUD + cửa sổ hiệu lực, hết hạn tự ẩn; RFQ khách: tạo kèm ảnh + thị trường + danh mục + giá mục tiêu + expiresAt, chỉ thấy yêu cầu của mình, hủy trước khi chọn báo giá, hết hạn tự chuyển EXPIRED; sales tiếp nhận: lọc theo status/assignee, phân công + SLA, ghi chú nội bộ không lọt API khách, cron nhắc quá hạn idempotent, mời NCC báo giá; NCC báo giá: chỉ thấy RFQ được mời hoặc đúng danh mục, một báo giá/NCC (sửa/rút/gửi lại), không thấy báo giá đối thủ, chặn khi hết hạn; khách so sánh + chọn báo giá → tạo Order + DealRoom (tái dùng phòng cũ, chọn lại idempotent, thông báo NCC trúng/trượt); 212/212 test xanh) |
 | 4B | 0 / 6 | |
 | 4C | 0 / 10 | |
 | 4D | 0 / 15 | |
@@ -545,12 +545,12 @@ Mỗi module: service + controller + DTO validate + test + Swagger. Logic port t
 - Việc làm: phân công sales, ghi chú nội bộ (khách không thấy), hạn xử lý (SLA), nhắc việc khi quá hạn.
 - DoD: ghi chú nội bộ không lọt ra API của khách (test).
 
-### [ ] P4.9 NCC báo giá (`postRequest`, `sendQuote`)
+### [x] P4.9 NCC báo giá (`postRequest`, `sendQuote`)
 - API: `GET /supplier/requests` (yêu cầu phù hợp ngành/NCC được mời), `POST /supplier/requests/:id/quotes`, `PUT /supplier/quotes/:id`, `POST /supplier/quotes/:id/withdraw`.
 - Việc làm: chỉ NCC được sales mời hoặc phù hợp mới thấy; báo giá gồm đơn giá, MOQ, lead time, hiệu lực, điều kiện giao; NCC không thấy báo giá của NCC khác; không báo giá khi RFQ hết hạn.
 - DoD: test hết hạn, NCC không được mời không thấy.
 
-### [ ] P4.10 Khách chọn báo giá (`selectQuote`)
+### [x] P4.10 Khách chọn báo giá (`selectQuote`)
 - API: `GET /sourcing-requests/:id/quotes` (so sánh), `POST /sourcing-requests/:id/select-quote`.
 - Việc làm: so sánh theo cột (đơn giá, MOQ, lead time, hiệu lực); báo giá hết hạn không chọn được; chọn xong tạo `Order` + `DealRoom` (hoặc mở phòng nếu đã có); thông báo cho NCC trúng và các NCC còn lại.
 - DoD: chọn hai lần chỉ tạo một đơn (idempotent); test migration dữ liệu cũ giữ nguyên (như test "migration preserves existing buyer/container work").

@@ -5,20 +5,27 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { type AccessPayload, CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { QuoteSelectionService } from './quote-selection.service';
 import {
   CreateSourcingRequestInput,
   createSourcingRequestSchema,
+  SelectQuoteInput,
+  selectQuoteSchema,
   SourcingRequestQueryInput,
   sourcingRequestQuerySchema,
 } from './sourcing-requests.dto';
 import { SourcingRequestsService } from './sourcing-requests.service';
 
-// Buyer RFQs (P4.7): create, list own, detail own, cancel before selection.
+// Buyer RFQs (P4.7) + quote comparison/selection (P4.10). A buyer only ever
+// touches its own requests.
 @ApiTags('sourcing-requests')
 @Roles(Role.Buyer)
 @Controller('sourcing-requests')
 export class BuyerSourcingController {
-  constructor(private readonly requests: SourcingRequestsService) {}
+  constructor(
+    private readonly requests: SourcingRequestsService,
+    private readonly quotes: QuoteSelectionService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Gửi yêu cầu tìm nguồn (createRFQ)' })
@@ -42,6 +49,23 @@ export class BuyerSourcingController {
   @ApiOperation({ summary: 'Chi tiết yêu cầu của tôi' })
   detail(@CurrentUser() user: AccessPayload, @Param('id') id: string) {
     return this.requests.getMine(user, id);
+  }
+
+  @Get(':id/quotes')
+  @ApiOperation({ summary: 'So sánh báo giá (đơn giá, MOQ, lead time, hiệu lực)' })
+  compare(@CurrentUser() user: AccessPayload, @Param('id') id: string) {
+    return this.quotes.listQuotes(user, id);
+  }
+
+  @Post(':id/select-quote')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Chọn báo giá, tạo đơn + phòng thương lượng (selectQuote)' })
+  select(
+    @CurrentUser() user: AccessPayload,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(selectQuoteSchema)) body: SelectQuoteInput,
+  ) {
+    return this.quotes.selectQuote(user, id, body);
   }
 
   @Post(':id/cancel')

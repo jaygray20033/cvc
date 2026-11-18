@@ -19,6 +19,8 @@ export const createSourcingRequestSchema = z.object({
   quantity: z.number().int().positive().max(1_000_000),
   // Target sales market (optional free text).
   market: z.string().trim().max(100).optional(),
+  // P4.9: lets suppliers in the same category see the RFQ without an invite.
+  categoryId: z.string().cuid().optional(),
   targetPrice: z.number().min(0).optional(),
   currency: z.enum(['VND', 'CNY']).optional(),
   // Optional deadline: expired requests accept no quotes and cannot be selected.
@@ -49,3 +51,39 @@ export const addSourcingNoteSchema = z.object({
   body: z.string().trim().min(1).max(2000),
 });
 export type AddSourcingNoteInput = z.infer<typeof addSourcingNoteSchema>;
+
+// P4.9 — supplier quoting. One quote per supplier per RFQ; MOQ may not exceed
+// the requested quantity, price must be positive.
+export const createQuoteSchema = z.object({
+  unitPrice: z.number().positive().max(1_000_000_000),
+  currency: z.enum(['VND', 'CNY']).optional(),
+  moq: z.number().int().positive().max(1_000_000),
+  leadTimeDays: z.number().int().min(0).max(365),
+  validUntil: z.coerce.date().optional(),
+  deliveryTerms: z.string().trim().max(500).optional(),
+  note: z.string().trim().max(1000).optional(),
+});
+export type CreateQuoteInput = z.infer<typeof createQuoteSchema>;
+
+export const updateQuoteSchema = createQuoteSchema.partial();
+export type UpdateQuoteInput = z.infer<typeof updateQuoteSchema>;
+
+export const supplierRequestQuerySchema = z.object({
+  status: z.enum(['OPEN', 'QUOTED']).optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+export type SupplierRequestQueryInput = z.infer<typeof supplierRequestQuerySchema>;
+
+// P4.8/P4.9: sales invites one or more suppliers to quote on an RFQ.
+export const inviteSuppliersSchema = z.object({
+  supplierIds: z.array(z.string().cuid()).min(1).max(50),
+});
+export type InviteSuppliersInput = z.infer<typeof inviteSuppliersSchema>;
+
+// P4.10 — buyer picks the winning quote.
+export const selectQuoteSchema = z.object({
+  quoteId: z.string().cuid(),
+  note: z.string().trim().max(500).optional(),
+});
+export type SelectQuoteInput = z.infer<typeof selectQuoteSchema>;

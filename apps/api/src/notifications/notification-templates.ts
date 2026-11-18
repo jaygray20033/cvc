@@ -81,4 +81,37 @@ export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
       body: `${String(data.requestNo ?? '')} — ${String(data.title ?? '')} đã quá hạn SLA. Vui lòng xử lý ngay.`,
     }),
   },
+  // P4.9/P4.10 — supplier invites, incoming quotes, selection outcome.
+  'sourcing.request_invited': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Bạn được mời báo giá',
+      body: `${String(data.requestNo ?? '')} — ${String(data.title ?? '')}. Vào mục yêu cầu để gửi báo giá.`,
+    }),
+  },
+  'sourcing.quote_received': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Báo giá mới cho yêu cầu của bạn',
+      body: `${String(data.requestNo ?? '')} — ${String(data.title ?? '')}: ${String(
+        data.unitPrice ?? '',
+      )} ${String(data.currency ?? '')}.`,
+    }),
+  },
+  'sourcing.quote_selected': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Báo giá của bạn được chọn',
+      body: `${String(data.requestNo ?? '')} — ${String(data.title ?? '')}. Đơn hàng ${
+        data.orderNo ? String(data.orderNo) : 'đã được tạo'
+      }.`,
+    }),
+  },
+  'sourcing.quote_rejected': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Báo giá không được chọn',
+      body: `${String(data.requestNo ?? '')} — ${String(data.title ?? '')}. Cảm ơn bạn đã gửi báo giá.`,
+    }),
+  },
 };

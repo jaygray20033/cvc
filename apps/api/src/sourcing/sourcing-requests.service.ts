@@ -16,6 +16,7 @@ import type {
   AdminSourcingRequestQueryInput,
   AssignSourcingRequestInput,
   CreateSourcingRequestInput,
+  InviteSuppliersInput,
   SourcingRequestQueryInput,
 } from './sourcing-requests.dto';
 
@@ -38,6 +39,7 @@ export class SourcingRequestsService {
     if (input.expiresAt && input.expiresAt.getTime() <= Date.now()) {
       throw new BadRequestException('Hạn nhận báo giá phải ở tương lai.');
     }
+    if (input.categoryId) await this.assertCategory(input.categoryId);
     const fileIds = input.fileObjectIds ?? [];
     await this.validateFiles(fileIds);
 
@@ -50,6 +52,7 @@ export class SourcingRequestsService {
         content: input.content,
         quantity: input.quantity,
         market: input.market,
+        categoryId: input.categoryId,
         targetPrice: input.targetPrice,
         currency: input.currency ?? 'VND',
         expiresAt: input.expiresAt,
@@ -63,7 +66,10 @@ export class SourcingRequestsService {
             }
           : undefined,
       },
-      include: { attachments: { include: { fileObject: { select: { s3Key: true } } } } },
+      include: {
+        attachments: { include: { fileObject: { select: { s3Key: true } } } },
+        category: { select: { id: true, name: true } },
+      },
     });
 
     // Notify every active sales user so someone picks the request up.
@@ -99,6 +105,7 @@ export class SourcingRequestsService {
         take: limit,
         include: {
           attachments: { include: { fileObject: { select: { s3Key: true } } } },
+          category: { select: { id: true, name: true } },
           _count: { select: { quotes: true } },
         },
       }),
@@ -118,6 +125,7 @@ export class SourcingRequestsService {
       where: { id, buyerId: buyer.sub, deletedAt: null },
       include: {
         attachments: { include: { fileObject: { select: { s3Key: true } } } },
+        category: { select: { id: true, name: true } },
         _count: { select: { quotes: true } },
         selection: { select: { id: true } },
       },
@@ -238,6 +246,48 @@ export class SourcingRequestsService {
     return { id: note.id, body: note.body, authorId: note.authorId, createdAt: note.createdAt };
   }
 
+  // P4.9: sales invites specific suppliers to quote (idempotent per supplier).
+  async inviteSuppliers(actor: AccessPayload, id: string, input: InviteSuppliersInput) {
+    const request = await this.prisma.sourcingRequest.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, requestNo: true, title: true, status: true },
+    });
+    if (!request) throw new NotFoundException('Yêu cầu không tồn tại.');
+    if (!['OPEN', 'QUOTED'].includes(request.status)) {
+      throw new ConflictException('Yêu cầu không còn nhận báo giá.');
+    }
+
+    const suppliers = await this.prisma.supplier.findMany({
+      where: { id: { in: input.supplierIds }, deletedAt: null, status: 'ACTIVE' },
+      select: { id: true, accounts: { select: { userId: true } } },
+    });
+    if (suppliers.length !== input.supplierIds.length) {
+      throw new BadRequestException('Một số nhà cung cấp không tồn tại hoặc đã ngừng hoạt động.');
+    }
+
+    await this.prisma.sourcingRequestInvitation.createMany({
+      data: suppliers.map((supplier) => ({
+        requestId: id,
+        supplierId: supplier.id,
+        invitedById: actor.sub,
+      })),
+      skipDuplicates: true,
+    });
+    for (const supplier of suppliers) {
+      for (const account of supplier.accounts) {
+        await this.notifications.emit('sourcing.request_invited', account.userId, {
+          requestNo: request.requestNo,
+          title: request.title,
+        });
+      }
+    }
+    this.logger.log(
+      { requestId: id, count: suppliers.length, actor: actor.sub },
+      'rfq invites sent',
+    );
+    return { requestId: id, invitedSupplierIds: suppliers.map((supplier) => supplier.id) };
+  }
+
   // ----------------------------------------------------------- SLA sweep
 
   // Cron sweep (queue 'cron'): remind assignees of overdue requests once per
@@ -296,6 +346,14 @@ export class SourcingRequestsService {
     }
   }
 
+  private async assertCategory(categoryId: string): Promise<void> {
+    const category = await this.prisma.category.findFirst({
+      where: { id: categoryId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!category) throw new BadRequestException('Danh mục không tồn tại.');
+  }
+
   private async validateFiles(fileObjectIds: string[]): Promise<void> {
     if (fileObjectIds.length === 0) return;
     const files = await this.prisma.fileObject.findMany({
@@ -319,6 +377,7 @@ export class SourcingRequestsService {
     return {
       buyer: { select: { id: true, email: true } },
       assignedTo: { select: { id: true, email: true } },
+      category: { select: { id: true, name: true } },
       attachments: { include: { fileObject: { select: { s3Key: true } } } },
       internalNotes: { orderBy: { createdAt: 'desc' as const } },
       _count: { select: { quotes: true } },
@@ -334,6 +393,7 @@ export class SourcingRequestsService {
       content: string | null;
       quantity: number | null;
       market: string | null;
+      category?: { id: string; name: string } | null;
       targetPrice: unknown;
       currency: string;
       expiresAt: Date | null;
@@ -356,6 +416,7 @@ export class SourcingRequestsService {
       content: request.content,
       quantity: request.quantity,
       market: request.market,
+      category: request.category ?? null,
       targetPrice: request.targetPrice,
       currency: request.currency,
       expiresAt: request.expiresAt,
