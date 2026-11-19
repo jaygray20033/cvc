@@ -181,6 +181,56 @@ export class FilesService {
     return { url, expiresIn: 300 };
   }
 
+  // GET /deal-rooms/:id/attachments/:id/download (P4.13) — members of the
+  // room may download files attached to its messages, even though they are not
+  // the uploader. Same READY + CLEAN gate as the owner download route.
+  async downloadRoomAttachment(user: AccessPayload, roomId: string, attachmentId: string) {
+    if (user.role !== 'admin') {
+      const membership = await this.prisma.dealRoomMember.findUnique({
+        where: { roomId_userId: { roomId, userId: user.sub } },
+        select: { id: true },
+      });
+      if (!membership) {
+        throw new NotFoundException({ code: ErrorCode.NotFound, message: 'Tệp không tồn tại.' });
+      }
+    }
+    const attachment = await this.prisma.messageAttachment.findFirst({
+      where: { id: attachmentId, message: { roomId } },
+      select: { fileObject: true },
+    });
+    const file = attachment?.fileObject;
+    if (!file) {
+      throw new NotFoundException({ code: ErrorCode.NotFound, message: 'Tệp không tồn tại.' });
+    }
+    if (file.status !== 'READY') {
+      throw new BadRequestException({
+        code: ErrorCode.BadRequest,
+        message: 'Tệp chưa sẵn sàng để tải.',
+      });
+    }
+    if (file.scanStatus === 'PENDING' || file.scanStatus === 'NOT_SCANNED') {
+      throw new ForbiddenException({
+        code: ErrorCode.Forbidden,
+        message: 'Tệp đang được quét virus, vui lòng đợi.',
+      });
+    }
+    if (file.scanStatus !== 'CLEAN') {
+      throw new ForbiddenException({
+        code: ErrorCode.Forbidden,
+        message: 'Tệp không vượt qua kiểm tra an toàn.',
+      });
+    }
+    const url = await this.s3.presignGet(file.bucket, file.s3Key);
+    await this.audit.log({
+      actorId: user.sub,
+      actorRole: user.role,
+      action: 'file.downloaded',
+      entityType: 'file',
+      entityId: file.id,
+    });
+    return { url, expiresIn: 300 };
+  }
+
   // ---- post-processing ----
 
   // Queue entry point (P2.19): virus scan then thumbnail, safe to re-run.

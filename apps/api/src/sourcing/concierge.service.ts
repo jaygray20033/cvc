@@ -12,6 +12,7 @@ import { Prisma } from '@prisma/client';
 import type { AccessPayload } from '../common/decorators/current-user.decorator';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import type { AdminConciergeRequestInput, OpenConciergeRoomInput } from './sourcing-requests.dto';
 import { SourcingRequestsService } from './sourcing-requests.service';
 
@@ -26,6 +27,7 @@ export class ConciergeService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly requests: SourcingRequestsService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   async createRequest(actor: AccessPayload, input: AdminConciergeRequestInput) {
@@ -299,10 +301,12 @@ export class ConciergeService {
           update: {},
         });
       }
-      return { order, roomId: room.id };
+      return { order, roomId: room.id, memberIds: [...members.keys()] };
     });
 
     await this.notifyRoomOpened(request, supplier.id, created.order.orderNo);
+    // P4.12: room members may join the realtime room right away.
+    await this.grantRoomAccess(created.roomId, created.memberIds);
 
     this.logger.log(
       { requestId: request.id, orderId: created.order.id, supplierId: supplier.id },
@@ -341,14 +345,25 @@ export class ConciergeService {
     if (!order) return null;
     const room = await this.prisma.dealRoom.findUnique({
       where: { sourcingRequestId: requestId },
-      select: { id: true },
+      select: { id: true, members: { select: { userId: true } } },
     });
+    // Self-heal the realtime allow-list when the room was opened before P4.12.
+    if (room) {
+      await this.grantRoomAccess(
+        room.id,
+        room.members.map((member) => member.userId),
+      );
+    }
     return {
       requestId,
       order,
       dealRoomId: room?.id ?? null,
       supplier: order.supplier,
     };
+  }
+
+  private async grantRoomAccess(roomId: string, userIds: string[]): Promise<void> {
+    await Promise.all(userIds.map((userId) => this.realtime.grantDealRoomAccess(roomId, userId)));
   }
 
   private async notifyRoomOpened(

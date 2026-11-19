@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client';
 import type { AccessPayload } from '../common/decorators/current-user.decorator';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import type { SelectQuoteInput } from './sourcing-requests.dto';
 import { SourcingRequestsService } from './sourcing-requests.service';
 
@@ -21,6 +22,7 @@ export class QuoteSelectionService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly requests: SourcingRequestsService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   // Compare columns: unit price, MOQ, lead time, validity (DoD).
@@ -133,7 +135,12 @@ export class QuoteSelectionService {
     const quantity = request.quantity ?? quote.moq;
     const totalAmount = new Prisma.Decimal(quote.unitPrice).mul(quantity);
 
-    let created: { selectionId: string; orderId: string; dealRoomId: string };
+    let created: {
+      selectionId: string;
+      orderId: string;
+      dealRoomId: string;
+      memberIds: string[];
+    };
     try {
       created = await this.prisma.$transaction(async (tx) => {
         const selection = await tx.quoteSelection.create({
@@ -219,7 +226,12 @@ export class QuoteSelectionService {
             update: {},
           });
         }
-        return { selectionId: selection.id, orderId: order.id, dealRoomId: room.id };
+        return {
+          selectionId: selection.id,
+          orderId: order.id,
+          dealRoomId: room.id,
+          memberIds: [...members.keys()],
+        };
       });
     } catch (error) {
       // Concurrent double-select: the second transaction hits the unique
@@ -238,6 +250,12 @@ export class QuoteSelectionService {
     }
 
     await this.notifySelection(requestId, request.requestNo, request.title, quote.supplierId);
+    // P4.12: room members may join the realtime room right away.
+    await Promise.all(
+      created.memberIds.map((userId) =>
+        this.realtime.grantDealRoomAccess(created.dealRoomId, userId),
+      ),
+    );
 
     this.logger.log(
       { requestId, quoteId: quote.id, orderId: created.orderId, buyerId: buyer.sub },

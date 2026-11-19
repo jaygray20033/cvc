@@ -55,13 +55,13 @@ hiển thị trực tiếp). Các endpoint P2.14 mới: `GET /me/kyc/sla`, `PUT 
 
 ## Module sau (điền khi hiện thực — P3+)
 
-| Nhóm endpoint                | buyer | participant | retailer | supplier | sales | inspector | admin |
-| ---------------------------- | ----- | ----------- | -------- | -------- | ----- | --------- | ----- |
-| Sourcing request / Deal Room | TBD   | TBD         | TBD      | TBD      | TBD   | TBD       | TBD   |
-| Campaign (mua hộ)            | TBD   | TBD         | TBD      | –        | TBD   | TBD       | TBD   |
-| Consignment (bán giùm)       | –     | TBD         | TBD      | –        | TBD   | TBD       | TBD   |
-| Orders                       | TBD   | TBD         | TBD      | TBD      | TBD   | TBD       | TBD   |
-| Admin                        | –     | –           | –        | –        | –     | –         | TBD   |
+| Nhóm endpoint                | buyer                                 | participant             | retailer                | supplier                | sales                              | inspector               | admin     |
+| ---------------------------- | ------------------------------------- | ----------------------- | ----------------------- | ----------------------- | ---------------------------------- | ----------------------- | --------- |
+| Sourcing request / Deal Room | RFQ của mình; phòng khi là thành viên | phòng khi là thành viên | phòng khi là thành viên | phòng khi là thành viên | phòng khi là thành viên + mời thêm | phòng khi là thành viên | mọi phòng |
+| Campaign (mua hộ)            | TBD                                   | TBD                     | TBD                     | –                       | TBD                                | TBD                     | TBD       |
+| Consignment (bán giùm)       | –                                     | TBD                     | TBD                     | –                       | TBD                                | TBD                     | TBD       |
+| Orders                       | TBD                                   | TBD                     | TBD                     | TBD                     | TBD                                | TBD                     | TBD       |
+| Admin                        | –                                     | –                       | –                       | –                       | –                                  | –                       | TBD       |
 
 ## Nhóm quyền admin (P2.10)
 

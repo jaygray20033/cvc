@@ -19,6 +19,7 @@ import { IdempotencyInterceptor } from './common/idempotency/idempotency.interce
 import { buildPinoOptions } from './common/logger/logger.config';
 import { MailModule } from './common/mail/mail.module';
 import { validateEnv } from './config/env.validation';
+import { DealRoomsModule } from './deal-rooms/deal-rooms.module';
 import { FilesModule } from './files/files.module';
 import { KycModule } from './kyc/kyc.module';
 import { MeModule } from './me/me.module';
@@ -76,6 +77,7 @@ import { SuppliersModule } from './suppliers/suppliers.module';
     SuppliersModule,
     BannersModule,
     SourcingModule,
+    DealRoomsModule,
   ],
   controllers: [AppController],
   providers: [

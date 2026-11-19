@@ -92,6 +92,7 @@ model User {
   // Deal room / contracts (P3.4/P3.5).
   dealRoomMemberships           DealRoomMember[]
   dealMessagesSent              Message[]
+  messageReads                  MessageRead[]
   offersMade                    Offer[]
   lockedTermsConfirmed          LockedTerms[]
   contractSignatures            ContractSignature[]
@@ -1398,10 +1399,26 @@ model Message {
 
   attachments  MessageAttachment[]
   translations Translation[]
+  reads        MessageRead[]
   Offer        Offer[]
 
   @@index([roomId, createdAt])
   @@map("deal_messages")
+}
+
+// P4.13 — per-user read receipt. A row exists once the member has seen the
+// message (POST /deal-rooms/:id/read marks everything up to a message).
+model MessageRead {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now())
+
+  @@unique([messageId, userId])
+  @@index([userId, readAt])
+  @@map("message_reads")
 }
 
 model MessageAttachment {

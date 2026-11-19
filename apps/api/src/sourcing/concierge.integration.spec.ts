@@ -7,6 +7,7 @@ import request from 'supertest';
 import { AppModule } from '../app.module';
 import { TokenService } from '../auth/token.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 
 // Integration tests for P4.11 (CVC concierge): sales files a request for a
 // walk-in customer and opens one private order + Deal Room. Ports the backend
@@ -23,6 +24,7 @@ const GUEST_DOMAIN = '@concierge.local';
 let app: INestApplication;
 let prisma: PrismaService;
 let tokens: TokenService;
+let realtime: RealtimeService;
 
 interface TestUser {
   id: string;
@@ -114,6 +116,7 @@ describeDb('CVC concierge (P4.11)', () => {
     await app.init();
     prisma = app.get(PrismaService);
     tokens = app.get(TokenService);
+    realtime = app.get(RealtimeService);
     await cleanup();
 
     buyer = await createUser(['buyer']);
@@ -282,6 +285,19 @@ describeDb('CVC concierge (P4.11)', () => {
     expect(opened.body.supplier.id).toBe(supMatched.id);
     expect(Number(opened.body.order.totalAmount)).toBe(150_000 * 100);
     expect(opened.body.dealRoomId).toBeTruthy();
+
+    // P4.12: opening the room grants realtime membership to the buyer; an
+    // unrelated supplier cannot join the room.
+    const buyerJoin = await realtime.assertCanJoin(
+      { sub: created.buyer.id, email: 'guest@concierge.local', sid: 'test', role: 'buyer' },
+      `dealRoom:${opened.body.dealRoomId}`,
+    );
+    expect(buyerJoin).toEqual({ ok: true });
+    const outsiderJoin = await realtime.assertCanJoin(
+      { sub: supOther.user.id, email: supOther.user.email, sid: 'test', role: 'supplier' },
+      `dealRoom:${opened.body.dealRoomId}`,
+    );
+    expect(outsiderJoin.ok).toBe(false);
 
     // Idempotent: same order, no second room/order.
     const again = await api()
