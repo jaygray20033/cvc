@@ -114,4 +114,21 @@ export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
       body: `${String(data.requestNo ?? '')} — ${String(data.title ?? '')}. Cảm ơn bạn đã gửi báo giá.`,
     }),
   },
+  // P4.11 — concierge rooms. Copy never names the supplier/buyer.
+  'sourcing.room_opened': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Phòng thương lượng đã mở',
+      body: `Yêu cầu ${String(data.requestNo ?? '')} đã được kết nối với nhà cung cấp. Vào Deal Room để trao đổi.`,
+    }),
+  },
+  'sourcing.room_ready': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'CVC đã mở phòng thương lượng',
+      body: `Yêu cầu ${String(data.requestNo ?? '')} — ${String(
+        data.title ?? '',
+      )}. Tiếp tục trải nghiệm trong Deal Room.`,
+    }),
+  },
 };

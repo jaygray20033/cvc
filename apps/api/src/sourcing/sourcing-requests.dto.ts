@@ -21,6 +21,9 @@ export const createSourcingRequestSchema = z.object({
   market: z.string().trim().max(100).optional(),
   // P4.9: lets suppliers in the same category see the RFQ without an invite.
   categoryId: z.string().cuid().optional(),
+  // P4.11: reference catalogue product + immediate guided experience.
+  referenceProductId: z.string().cuid().optional(),
+  startExperience: z.boolean().optional(),
   targetPrice: z.number().min(0).optional(),
   currency: z.enum(['VND', 'CNY']).optional(),
   // Optional deadline: expired requests accept no quotes and cannot be selected.
@@ -87,3 +90,41 @@ export const selectQuoteSchema = z.object({
   note: z.string().trim().max(500).optional(),
 });
 export type SelectQuoteInput = z.infer<typeof selectQuoteSchema>;
+
+// P4.11 — CVC concierge: sales files a request for a walk-in customer (or an
+// existing buyer) and opens a private Deal Room with a matched supplier.
+export const adminConciergeRequestSchema = z
+  .object({
+    buyerId: z.string().cuid().optional(),
+    buyerName: z.string().trim().min(1).max(100).optional(),
+    buyerPhone: z.string().trim().min(6).max(20).optional(),
+    title: z.string().trim().min(1).max(200),
+    content: z.string().trim().max(2000).optional(),
+    quantity: z.number().int().positive().max(1_000_000),
+    categoryId: z.string().cuid().optional(),
+    referenceProductId: z.string().cuid().optional(),
+    market: z.string().trim().max(100).optional(),
+    targetPrice: z.number().positive().max(1_000_000_000).optional(),
+    currency: z.enum(['VND', 'CNY']).optional(),
+    expiresAt: z.coerce.date().optional(),
+    // When true the supplier is matched and the Deal Room opened immediately.
+    startExperience: z.boolean().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.buyerId && !value.buyerName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['buyerName'],
+        message: 'Cần buyerId hoặc tên khách hàng.',
+      });
+    }
+  });
+export type AdminConciergeRequestInput = z.infer<typeof adminConciergeRequestSchema>;
+
+export const openConciergeRoomSchema = z.object({
+  requestId: z.string().cuid(),
+  // Optional: connect an exact quote, or an explicit supplier without a quote.
+  quoteId: z.string().cuid().optional(),
+  supplierId: z.string().cuid().optional(),
+});
+export type OpenConciergeRoomInput = z.infer<typeof openConciergeRoomSchema>;

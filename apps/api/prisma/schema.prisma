@@ -668,17 +668,18 @@ model Product {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  images              ProductImage[]
-  specs               ProductSpec[]
-  supplierProducts    SupplierProduct[]
-  campaignLines       CampaignLine[]
-  participationLines  ParticipationLine[]
-  allocationLines     AllocationLine[]
-  saleLines           SaleLine[]
-  resaleListings      ResaleListing[]
-  inventoryLots       InventoryLot[]
-  sourcingCaseSources SourcingCase[]      @relation("SourcingCaseSource")
-  sourcingCaseItems   SourcingCase[]      @relation("SourcingCaseItem")
+  images                    ProductImage[]
+  specs                     ProductSpec[]
+  supplierProducts          SupplierProduct[]
+  campaignLines             CampaignLine[]
+  participationLines        ParticipationLine[]
+  allocationLines           AllocationLine[]
+  saleLines                 SaleLine[]
+  resaleListings            ResaleListing[]
+  inventoryLots             InventoryLot[]
+  sourcingCaseSources       SourcingCase[]      @relation("SourcingCaseSource")
+  sourcingCaseItems         SourcingCase[]      @relation("SourcingCaseItem")
+  sourcingReferenceRequests SourcingRequest[]   @relation("SourcingReferenceProduct")
 
   @@index([categoryId, status])
   @@index([status])
@@ -837,33 +838,47 @@ enum SourcingRequestStatus {
   CANCELLED
 }
 
+// P4.11: standard buyer RFQs vs CVC concierge requests (guest buyer contact,
+// CVC matches the supplier and opens the room directly).
+enum SourcingRequestWorkflow {
+  STANDARD
+  CONCIERGE
+}
+
 model SourcingRequest {
-  id            String                @id @default(cuid())
+  id                 String                  @id @default(cuid())
   // Business number, format "CVC-RFQ-..." (P3.3).
-  requestNo     String                @unique @db.VarChar(32)
-  buyerId       String
-  buyer         User                  @relation(fields: [buyerId], references: [id], onDelete: Restrict)
-  title         String                @db.VarChar(200)
-  content       String?               @db.VarChar(2000)
-  quantity      Int?
+  requestNo          String                  @unique @db.VarChar(32)
+  buyerId            String
+  buyer              User                    @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  title              String                  @db.VarChar(200)
+  content            String?                 @db.VarChar(2000)
+  quantity           Int?
   // P4.7: target sales market (e.g. "Việt Nam", "EU").
-  market        String?               @db.VarChar(100)
+  market             String?                 @db.VarChar(100)
   // Buyer target price for negotiation.
-  targetPrice   Decimal?              @db.Decimal(18, 2)
-  currency      String                @default("VND") @db.VarChar(3)
-  expiresAt     DateTime?
-  status        SourcingRequestStatus @default(OPEN)
+  targetPrice        Decimal?                @db.Decimal(18, 2)
+  currency           String                  @default("VND") @db.VarChar(3)
+  expiresAt          DateTime?
+  status             SourcingRequestStatus   @default(OPEN)
   // P4.9: category lets matching suppliers see the RFQ without an invite.
-  categoryId    String?
-  category      Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryId         String?
+  category           Category?               @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  // P4.11: concierge requests store walk-in contact info and a catalogue
+  // reference product used to match the supplier.
+  workflow           SourcingRequestWorkflow @default(STANDARD)
+  contactName        String?                 @db.VarChar(100)
+  contactPhone       String?                 @db.VarChar(20)
+  referenceProductId String?
+  referenceProduct   Product?                @relation("SourcingReferenceProduct", fields: [referenceProductId], references: [id], onDelete: SetNull)
   // P4.8: sales assignment + SLA (internal only, never in buyer responses).
-  assignedToId  String?
-  assignedTo    User?                 @relation("SourcingRequestAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  slaDueAt      DateTime?
-  slaRemindedAt DateTime?
-  deletedAt     DateTime? // soft delete: quotes/order reference RFQs
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
+  assignedToId       String?
+  assignedTo         User?                   @relation("SourcingRequestAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  slaDueAt           DateTime?
+  slaRemindedAt      DateTime?
+  deletedAt          DateTime? // soft delete: quotes/order reference RFQs
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
 
   attachments   SourcingRequestAttachment[]
   quotes        Quote[]
@@ -878,6 +893,7 @@ model SourcingRequest {
   @@index([assignedToId, status])
   @@index([slaDueAt])
   @@index([categoryId])
+  @@index([referenceProductId])
   @@map("sourcing_requests")
 }
 

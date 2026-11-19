@@ -5,6 +5,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { type AccessPayload, CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { ConciergeService } from './concierge.service';
 import { QuoteSelectionService } from './quote-selection.service';
 import {
   CreateSourcingRequestInput,
@@ -25,15 +26,22 @@ export class BuyerSourcingController {
   constructor(
     private readonly requests: SourcingRequestsService,
     private readonly quotes: QuoteSelectionService,
+    private readonly concierge: ConciergeService,
   ) {}
 
   @Post()
   @ApiOperation({ summary: 'Gửi yêu cầu tìm nguồn (createRFQ)' })
-  create(
+  async create(
     @CurrentUser() user: AccessPayload,
     @Body(new ZodValidationPipe(createSourcingRequestSchema)) body: CreateSourcingRequestInput,
   ) {
-    return this.requests.create(user, body);
+    const created = await this.requests.create(user, body);
+    // P4.11 startSourcingExperience: open the Deal Room immediately.
+    if (body.startExperience) {
+      const room = await this.concierge.startExperienceForBuyer(user, created.id);
+      return { ...created, order: room.order, dealRoomId: room.dealRoomId };
+    }
+    return created;
   }
 
   @Get()

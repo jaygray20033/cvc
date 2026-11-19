@@ -40,6 +40,7 @@ export class SourcingRequestsService {
       throw new BadRequestException('Hạn nhận báo giá phải ở tương lai.');
     }
     if (input.categoryId) await this.assertCategory(input.categoryId);
+    if (input.referenceProductId) await this.assertReferenceProduct(input.referenceProductId);
     const fileIds = input.fileObjectIds ?? [];
     await this.validateFiles(fileIds);
 
@@ -53,6 +54,9 @@ export class SourcingRequestsService {
         quantity: input.quantity,
         market: input.market,
         categoryId: input.categoryId,
+        referenceProductId: input.referenceProductId,
+        // P4.11: guided experience requests are concierge workflow.
+        workflow: input.startExperience ? 'CONCIERGE' : 'STANDARD',
         targetPrice: input.targetPrice,
         currency: input.currency ?? 'VND',
         expiresAt: input.expiresAt,
@@ -106,6 +110,7 @@ export class SourcingRequestsService {
         include: {
           attachments: { include: { fileObject: { select: { s3Key: true } } } },
           category: { select: { id: true, name: true } },
+          dealRoom: { select: { id: true } },
           _count: { select: { quotes: true } },
         },
       }),
@@ -126,6 +131,7 @@ export class SourcingRequestsService {
       include: {
         attachments: { include: { fileObject: { select: { s3Key: true } } } },
         category: { select: { id: true, name: true } },
+        dealRoom: { select: { id: true } },
         _count: { select: { quotes: true } },
         selection: { select: { id: true } },
       },
@@ -354,6 +360,14 @@ export class SourcingRequestsService {
     if (!category) throw new BadRequestException('Danh mục không tồn tại.');
   }
 
+  private async assertReferenceProduct(productId: string): Promise<void> {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!product) throw new BadRequestException('Sản phẩm tham khảo không tồn tại.');
+  }
+
   private async validateFiles(fileObjectIds: string[]): Promise<void> {
     if (fileObjectIds.length === 0) return;
     const files = await this.prisma.fileObject.findMany({
@@ -378,6 +392,7 @@ export class SourcingRequestsService {
       buyer: { select: { id: true, email: true } },
       assignedTo: { select: { id: true, email: true } },
       category: { select: { id: true, name: true } },
+      referenceProduct: { select: { id: true, sku: true, name: true } },
       attachments: { include: { fileObject: { select: { s3Key: true } } } },
       internalNotes: { orderBy: { createdAt: 'desc' as const } },
       _count: { select: { quotes: true } },
@@ -394,6 +409,8 @@ export class SourcingRequestsService {
       quantity: number | null;
       market: string | null;
       category?: { id: string; name: string } | null;
+      workflow?: string;
+      dealRoom?: { id: string } | null;
       targetPrice: unknown;
       currency: string;
       expiresAt: Date | null;
@@ -417,6 +434,9 @@ export class SourcingRequestsService {
       quantity: request.quantity,
       market: request.market,
       category: request.category ?? null,
+      workflow: request.workflow ?? 'STANDARD',
+      // P4.11: lets the buyer UI continue in the Deal Room; no supplier leak.
+      dealRoomId: request.dealRoom?.id ?? null,
       targetPrice: request.targetPrice,
       currency: request.currency,
       expiresAt: request.expiresAt,
@@ -450,6 +470,11 @@ export class SourcingRequestsService {
     updatedAt: Date;
     buyer: { id: string; email: string };
     assignedTo: { id: string; email: string } | null;
+    category?: { id: string; name: string } | null;
+    workflow?: string;
+    contactName?: string | null;
+    contactPhone?: string | null;
+    referenceProduct?: { id: string; sku: string; name: string } | null;
     attachments: Array<{
       id: string;
       fileObjectId: string | null;
@@ -463,6 +488,9 @@ export class SourcingRequestsService {
       ...this.mapBuyer(request, request._count?.quotes ?? 0),
       buyer: request.buyer,
       assignedTo: request.assignedTo,
+      contactName: request.contactName ?? null,
+      contactPhone: request.contactPhone ?? null,
+      referenceProduct: request.referenceProduct ?? null,
       slaDueAt: request.slaDueAt,
       slaRemindedAt: request.slaRemindedAt,
       internalNotes: request.internalNotes,
