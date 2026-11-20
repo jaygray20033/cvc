@@ -36,3 +36,13 @@ export const markDealRoomReadSchema = z.object({
   messageId: z.string().cuid(),
 });
 export type MarkDealRoomReadInput = z.infer<typeof markDealRoomReadSchema>;
+
+// P4.14 — POST /messages/:id/translate?lang=vi|zh|en|zh-CN...
+export const translateMessageQuerySchema = z.object({
+  lang: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z]{2}(-[a-zA-Z]{2})?$/, 'Mã ngôn ngữ phải dạng vi, en hoặc zh-CN.')
+    .transform((value) => value.toLowerCase()),
+});
+export type TranslateMessageQueryInput = z.infer<typeof translateMessageQuerySchema>;

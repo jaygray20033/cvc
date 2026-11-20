@@ -35,6 +35,11 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     defaultValue: 2,
     description: 'Độ dài tối thiểu của truy vấn tìm kiếm.',
   },
+  'translate.dailyLimit': {
+    schema: z.number().int().min(0).max(100_000),
+    defaultValue: 100,
+    description: 'Số lượt dịch mới tối đa mỗi người dùng mỗi ngày (bản cache không tính).',
+  },
 };
 
 export type SettingKey = keyof typeof SETTING_DEFINITIONS;
