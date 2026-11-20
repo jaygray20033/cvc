@@ -57,7 +57,7 @@ hiển thị trực tiếp). Các endpoint P2.14 mới: `GET /me/kyc/sla`, `PUT 
 
 | Nhóm endpoint                | buyer                                 | participant             | retailer                | supplier                | sales                              | inspector               | admin     |
 | ---------------------------- | ------------------------------------- | ----------------------- | ----------------------- | ----------------------- | ---------------------------------- | ----------------------- | --------- |
-| Sourcing request / Deal Room | RFQ của mình; phòng khi là thành viên | phòng khi là thành viên | phòng khi là thành viên | phòng khi là thành viên | phòng khi là thành viên + mời thêm | phòng khi là thành viên | mọi phòng |
+| Sourcing request / Deal Room | RFQ của mình; phòng khi là thành viên; offer/terms khi là buyer của đơn | phòng khi là thành viên | phòng khi là thành viên | phòng khi là thành viên; offer/terms khi là NCC của đơn | phòng khi là thành viên + mời thêm (chỉ đọc giá/điều khoản) | phòng khi là thành viên | mọi phòng (chỉ đọc giá/điều khoản) |
 | Campaign (mua hộ)            | TBD                                   | TBD                     | TBD                     | –                       | TBD                                | TBD                     | TBD       |
 | Consignment (bán giùm)       | –                                     | TBD                     | TBD                     | –                       | TBD                                | TBD                     | TBD       |
 | Orders                       | TBD                                   | TBD                     | TBD                     | TBD                     | TBD                                | TBD                     | TBD       |

@@ -95,6 +95,8 @@ model User {
   messageReads                  MessageRead[]
   offersMade                    Offer[]
   lockedTermsConfirmed          LockedTerms[]
+  dealTermsDraftsEdited         DealTermsDraft[]        @relation("DealTermsDraftEditor")
+  dealTermsConfirmations        DealTermsConfirmation[]
   contractSignatures            ContractSignature[]
   // Group buy (P3.6).
   campaignsCreated              Campaign[]
@@ -106,11 +108,11 @@ model User {
   returnRequestsDecided         ReturnRequest[]
   // Resale (P3.7).
   storesOwned                   Store[]
-  retailerRegistration          RetailerRegistration?  @relation("RetailerOwner")
-  retailerRegistrationsReviewed RetailerRegistration[] @relation("RetailerReviewer")
+  retailerRegistration          RetailerRegistration?   @relation("RetailerOwner")
+  retailerRegistrationsReviewed RetailerRegistration[]  @relation("RetailerReviewer")
   allocationsMade               Allocation[]
-  transfersSent                 Transfer[]             @relation("TransferSender")
-  transfersReceived             Transfer[]             @relation("TransferReceiver")
+  transfersSent                 Transfer[]              @relation("TransferSender")
+  transfersReceived             Transfer[]              @relation("TransferReceiver")
   receiptsUploaded              TransferReceipt[]
   // Sales/inventory (P3.8).
   salesMade                     Sale[]
@@ -1358,6 +1360,9 @@ model DealRoom {
   messages Message[]
   offers   Offer[]
 
+  termsDraft        DealTermsDraft?
+  termConfirmations DealTermsConfirmation[]
+
   @@index([status])
   @@map("deal_rooms")
 }
@@ -1498,6 +1503,46 @@ model LockedTerms {
   updatedAt  DateTime @updatedAt
 
   @@map("locked_terms")
+}
+
+// P4.15 — editable terms draft before the snapshot is locked. The version
+// increments whenever the content changes, so confirmations only count for the
+// exact wording both parties saw.
+model DealTermsDraft {
+  id          String   @id @default(cuid())
+  roomId      String   @unique
+  room        DealRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  terms       Json
+  currency    String   @default("VND") @db.VarChar(3)
+  version     Int      @default(1)
+  updatedById String
+  updatedBy   User     @relation("DealTermsDraftEditor", fields: [updatedById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  confirmations DealTermsConfirmation[]
+
+  @@map("deal_terms_drafts")
+}
+
+// One confirmation per party per draft version. Locking requires a buyer-side
+// and a supplier-side row for the draft's current version.
+model DealTermsConfirmation {
+  id          String         @id @default(cuid())
+  draftId     String
+  draft       DealTermsDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  roomId      String
+  room        DealRoom       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // buyer | supplier
+  side        String         @db.VarChar(16)
+  version     Int
+  confirmedAt DateTime       @default(now())
+
+  @@unique([draftId, userId, version])
+  @@index([roomId, version])
+  @@map("deal_terms_confirmations")
 }
 
 // ---------------------------------------------------------------------------

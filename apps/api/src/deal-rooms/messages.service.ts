@@ -198,6 +198,23 @@ export class DealRoomMessagesService {
     this.realtime.toDealRoom(roomId, 'message.new', this.mapMessage(message, '', roomId));
   }
 
+  // P4.15 — offer traffic is a first-class OFFER message: rendered in the chat
+  // timeline with the offer id in `data`, so the UI can deep-link to it.
+  async postOfferMessage(
+    roomId: string,
+    senderId: string,
+    body: string,
+    data: Prisma.InputJsonValue,
+  ): Promise<void> {
+    const sanitized = sanitizeMessageBody(body);
+    if (!sanitized) return;
+    const message = await this.prisma.message.create({
+      data: { roomId, senderId, type: 'OFFER', body: sanitized, data },
+      include: MESSAGE_INCLUDE,
+    });
+    this.realtime.toDealRoom(roomId, 'message.new', this.mapMessage(message, senderId, roomId));
+  }
+
   // ---------------------------------------------------------------- helpers
 
   private async enforceSendRate(actor: AccessPayload, roomId: string): Promise<void> {

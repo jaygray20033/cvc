@@ -131,4 +131,48 @@ export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
       )}. Tiếp tục trải nghiệm trong Deal Room.`,
     }),
   },
+  // P4.15 — offers and terms. Copy stays generic (no supplier/cost leak).
+  'deal.offer_received': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: data.counter ? 'Đối đề nghị giá mới' : 'Đề nghị giá mới',
+      body: `Đơn giá ${String(data.unitPrice ?? '')} ${String(data.currency ?? '')} × ${String(
+        data.quantity ?? '',
+      )}. Vào phòng thương lượng để phản hồi.`,
+    }),
+  },
+  'deal.offer_accepted': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Đề nghị giá đã được chấp nhận',
+      body: `Đơn giá ${String(data.unitPrice ?? '')} ${String(data.currency ?? '')} đã được chấp nhận. Tổng tạm tính ${String(
+        data.totalAmount ?? '',
+      )} ${String(data.currency ?? '')}.`,
+    }),
+  },
+  'deal.offer_rejected': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Đề nghị giá bị từ chối',
+      body: `Đơn giá ${String(data.unitPrice ?? '')} ${String(data.currency ?? '')} không được chấp nhận. Bạn có thể đối đề nghị.`,
+    }),
+  },
+  'deal.terms_confirm_needed': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Điều khoản đang chờ bạn xác nhận',
+      body: `Bên kia đã xác nhận điều khoản phiên bản ${String(
+        data.version ?? '',
+      )}. Vào phòng thương lượng để xác nhận.`,
+    }),
+  },
+  'deal.terms_locked': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Điều khoản đã được khóa',
+      body: `Hai bên đã xác nhận điều khoản phiên bản ${String(
+        data.version ?? '',
+      )}. Đơn chuyển sang bước lấy mẫu.`,
+    }),
+  },
 };
