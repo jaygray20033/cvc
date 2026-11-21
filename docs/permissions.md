@@ -60,7 +60,7 @@ hiển thị trực tiếp). Các endpoint P2.14 mới: `GET /me/kyc/sla`, `PUT 
 | Sourcing request / Deal Room | RFQ của mình; phòng khi là thành viên; offer/terms khi là buyer của đơn | phòng khi là thành viên | phòng khi là thành viên | phòng khi là thành viên; offer/terms khi là NCC của đơn | phòng khi là thành viên + mời thêm (chỉ đọc giá/điều khoản) | phòng khi là thành viên | mọi phòng (chỉ đọc giá/điều khoản) |
 | Campaign (mua hộ)            | TBD                                   | TBD                     | TBD                     | –                       | TBD                                | TBD                     | TBD       |
 | Consignment (bán giùm)       | –                                     | TBD                     | TBD                     | –                       | TBD                                | TBD                     | TBD       |
-| Orders                       | TBD                                   | TBD                     | TBD                     | TBD                     | TBD                                | TBD                     | TBD       |
+| Orders                       | đơn của mình: xem + chuyển bước hợp lệ; yêu cầu/nhận/sửa/duyệt mẫu | –                       | –                       | đơn của NCC mình: xem + chuyển bước; upload/gửi mẫu, nhập mốc vận chuyển | mọi đơn (chỉ đọc trạng thái/mẫu; nhập mốc vận chuyển mẫu) | mọi đơn (QC bấm đạt/không đạt); không sửa mẫu | mọi đơn; duyệt cọc/thanh toán, hủy sau cọc, hoàn tất |
 | Admin                        | –                                     | –                       | –                       | –                       | –                                  | –                       | TBD       |
 
 ## Nhóm quyền admin (P2.10)

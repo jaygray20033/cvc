@@ -40,6 +40,11 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     defaultValue: 100,
     description: 'Số lượt dịch mới tối đa mỗi người dùng mỗi ngày (bản cache không tính).',
   },
+  'samples.maxRevisionRounds': {
+    schema: z.number().int().min(0).max(20),
+    defaultValue: 2,
+    description: 'Số vòng sửa mẫu tối đa trước khi khách phải duyệt hoặc từ chối.',
+  },
 };
 
 export type SettingKey = keyof typeof SETTING_DEFINITIONS;

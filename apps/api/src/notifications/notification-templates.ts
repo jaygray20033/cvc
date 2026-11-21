@@ -175,4 +175,72 @@ export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
       )}. Đơn chuyển sang bước lấy mẫu.`,
     }),
   },
+  // P4.16 — order state machine.
+  'order.status_changed': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Đơn hàng đã chuyển bước',
+      body: `Đơn ${String(data.orderNo ?? '')} chuyển từ ${String(data.from ?? '')} sang ${String(
+        data.to ?? '',
+      )}${data.reason ? ` — ${String(data.reason)}` : ''}.`,
+    }),
+  },
+  // P4.17 — sample requests, shipping milestones and decisions.
+  'sample.requested': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Yêu cầu mẫu mới',
+      body: `Đơn ${String(data.orderNo ?? '')} yêu cầu mẫu ${String(
+        data.sampleNo ?? '',
+      )}. Vui lòng chuẩn bị và cập nhật ảnh mẫu.`,
+    }),
+  },
+  'sample.uploaded': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Nhà cung cấp đã cập nhật mẫu',
+      body: `Mẫu ${String(data.sampleNo ?? '')} (vòng ${String(
+        data.round ?? '',
+      )}) đã có ảnh mới. Vào đơn để kiểm tra.`,
+    }),
+  },
+  'sample.sent': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Mẫu đã được gửi',
+      body: `Mẫu ${String(data.sampleNo ?? '')} đã gửi qua ${String(data.carrier ?? '')} · ${String(
+        data.trackingNo ?? '',
+      )}.`,
+    }),
+  },
+  'sample.delivered': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Mẫu đã tới nơi',
+      body: `Mẫu ${String(data.sampleNo ?? '')} đã được đánh dấu giao. Vui lòng xác nhận nhận mẫu.`,
+    }),
+  },
+  'sample.received': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Khách đã nhận mẫu',
+      body: `Mẫu ${String(data.sampleNo ?? '')} đã được khách xác nhận nhận.`,
+    }),
+  },
+  'sample.revision_requested': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Khách yêu cầu sửa mẫu',
+      body: `Mẫu ${String(data.sampleNo ?? '')} cần sửa (vòng ${String(
+        data.round ?? '',
+      )}): ${String(data.note ?? '')}`,
+    }),
+  },
+  'sample.approved': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Mẫu đã được duyệt',
+      body: `Khách đã duyệt mẫu ${String(data.sampleNo ?? '')}. Đơn chuyển sang bước hợp đồng.`,
+    }),
+  },
 };

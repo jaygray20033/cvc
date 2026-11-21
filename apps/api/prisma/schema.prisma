@@ -88,6 +88,7 @@ model User {
   claimProposals           ClaimProposal[]
   claimResolutions         ClaimResolution[]
   shipmentStopsEntered     ShipmentStop[]
+  sampleStopsEntered       SampleStop[]
 
   // Deal room / contracts (P3.4/P3.5).
   dealRoomMemberships           DealRoomMember[]
@@ -497,6 +498,7 @@ model FileObject {
   returnShipments            ReturnShipment[]
   // P3.4-P3.8 file references.
   messageAttachments         MessageAttachment[]
+  samplePhotos               Sample[]                    @relation("SamplePhoto")
   signedContracts            Contract[]
   transferReceipts           TransferReceipt[]
   inspectionPhotos           InspectionPhoto[]
@@ -1085,46 +1087,83 @@ model OrderEvent {
   @@map("order_events")
 }
 
+// P4.17 flow: requested → uploaded → sent → in_transit → delivered →
+// (revision_requested → uploaded…) | approved. SHIPPED is kept for legacy rows.
 enum SampleStatus {
   REQUESTED
+  UPLOADED
+  SENT
   SHIPPED
+  IN_TRANSIT
   DELIVERED
+  REVISION_REQUESTED
   APPROVED
   REJECTED
   STOPPED
 }
 
+enum SampleStopType {
+  PICKED_UP
+  IN_TRANSIT
+  CUSTOMS
+  DELIVERED
+  OTHER
+}
+
 model Sample {
-  id          String       @id @default(cuid())
+  id                String       @id @default(cuid())
   // Business number, format "CVC-SMP-..." (P3.3).
-  sampleNo    String       @unique @db.VarChar(32)
-  orderId     String
-  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  status      SampleStatus @default(REQUESTED)
-  note        String?      @db.VarChar(500)
-  requestedAt DateTime     @default(now())
-  shippedAt   DateTime?
-  deliveredAt DateTime?
-  decidedAt   DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  sampleNo          String       @unique @db.VarChar(32)
+  orderId           String
+  order             Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status            SampleStatus @default(REQUESTED)
+  note              String?      @db.VarChar(500)
+  requestedAt       DateTime     @default(now())
+  uploadedAt        DateTime?
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+  decidedAt         DateTime?
+  // P4.17 sample shipping is entered by hand (D13): no carrier API.
+  carrier           String?      @db.VarChar(100)
+  trackingNo        String?      @db.VarChar(100)
+  trackingUrl       String?      @db.VarChar(500)
+  // Photo/evidence of the actual sample uploaded by the supplier.
+  photoFileObjectId String?
+  photoFile         FileObject?  @relation("SamplePhoto", fields: [photoFileObjectId], references: [id], onDelete: SetNull)
+  // Revision rounds requested by the buyer; capped by a runtime setting.
+  revisionCount     Int          @default(0)
+  revisionNote      String?      @db.VarChar(1000)
+  // Optional sample fee; P4.19 wires the payment request to this amount.
+  feeAmount         Decimal?     @db.Decimal(18, 2)
+  feeCurrency       String?      @db.VarChar(3)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   stops SampleStop[]
 
   @@index([orderId])
+  @@index([photoFileObjectId])
   @@map("samples")
 }
 
-// Manual pause/resume records while the sample is being made.
+// Hand-entered sample milestones (D13: no carrier API). `reason` is the
+// description shown in the timeline; `enteredBy` records who typed it.
 model SampleStop {
-  id        String   @id @default(cuid())
-  sampleId  String
-  sample    Sample   @relation(fields: [sampleId], references: [id], onDelete: Cascade)
-  reason    String   @db.VarChar(500)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String         @id @default(cuid())
+  sampleId    String
+  sample      Sample         @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  type        SampleStopType @default(OTHER)
+  reason      String         @db.VarChar(500)
+  location    String?        @db.VarChar(200)
+  occurredAt  DateTime       @default(now())
+  enteredById String?
+  enteredBy   User?          @relation(fields: [enteredById], references: [id], onDelete: SetNull)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
   @@index([sampleId])
+  @@index([sampleId, occurredAt])
+  @@index([enteredById])
   @@map("sample_stops")
 }
 
