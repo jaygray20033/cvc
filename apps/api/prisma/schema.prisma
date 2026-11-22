@@ -1045,6 +1045,7 @@ model Order {
   dealRoom     DealRoom?
   qcReports    QcReport[]
   LockedTerms  LockedTerms?
+  customerInfo OrderCustomerInfo?
   invoices     Invoice[]
   sourcingCase SourcingCase?   @relation("SourcingCaseOrder")
 
@@ -1052,6 +1053,32 @@ model Order {
   @@index([supplierId, status])
   @@index([status])
   @@map("orders")
+}
+
+// P4.18 — legal customer snapshot used to render the sourcing contract.
+// It is prefilled from Profile/approved KYC but stored per order so later
+// profile edits never mutate an existing contract. Once a Contract exists for
+// the order (or lockedAt is set) the row becomes read-only. The CCCD number is
+// AES-256-GCM encrypted; only last4 is returned by the API.
+model OrderCustomerInfo {
+  id                 String   @id @default(cuid())
+  orderId            String   @unique
+  order              Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orgType            OrgType  @default(PERSONAL)
+  legalName          String   @db.VarChar(191)
+  taxId              String?  @db.VarChar(14)
+  businessRegNo      String?  @db.VarChar(20)
+  cccdNumberEnc      String?  @db.VarChar(255)
+  cccdLast4          String?  @db.VarChar(4)
+  address            String   @db.VarChar(255)
+  representativeName String?  @db.VarChar(191)
+  lockedAt           DateTime?
+  lockedById         String?
+  version            Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("order_customer_info")
 }
 
 // One row per stage transition (audit of the D7 flow).
