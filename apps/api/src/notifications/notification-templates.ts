@@ -243,4 +243,102 @@ export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
       body: `Khách đã duyệt mẫu ${String(data.sampleNo ?? '')}. Đơn chuyển sang bước hợp đồng.`,
     }),
   },
+  // P4.22 — claims. Copy never mentions supplier cost; it only references the
+  // claim number, ordered/missing quantities and the refund amount.
+  'claim.filed': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Khiếu nại mới',
+      body: `Đơn ${String(data.orderNo ?? '')} · ${String(data.claimNo ?? '')}: ${String(
+        data.type ?? '',
+      )}, giá trị ${String(data.amount ?? '')} ${String(data.currency ?? '')}.`,
+    }),
+  },
+  'claim.proposed': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'CVC đã đề xuất phương án xử lý',
+      body: `Khiếu nại ${String(data.claimNo ?? '')}: ${String(
+        data.kind ?? '',
+      )}${data.amount ? ` — ${String(data.amount)} ${String(data.currency ?? '')}` : ''}. Vào đơn để chọn phương án.`,
+    }),
+  },
+  'claim.resolution_chosen': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Khách đã chọn phương án khiếu nại',
+      body: `Khiếu nại ${String(data.claimNo ?? '')}: ${String(data.choice ?? '')}.`,
+    }),
+  },
+  'claim.topup_delivered': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Hàng gửi bù đã tới nơi',
+      body: `Khiếu nại ${String(data.claimNo ?? '')}: vui lòng xác nhận đã nhận ${String(
+        data.missingQuantity ?? '',
+      )} sản phẩm gửi bù.`,
+    }),
+  },
+  'claim.topup_confirmed': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Khách đã nhận hàng gửi bù',
+      body: `Khiếu nại ${String(data.claimNo ?? '')} đã được khách xác nhận. CVC có thể kết luận.`,
+    }),
+  },
+  'claim.return_sent': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Khách đã gửi trả hàng',
+      body: `Khiếu nại ${String(data.claimNo ?? '')} · ${String(data.carrier ?? '')} ${
+        data.trackingNo ? `· ${String(data.trackingNo)}` : ''
+      }.`,
+    }),
+  },
+  'claim.return_received': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'CVC đã nhận hàng trả về',
+      body: `Khiếu nại ${String(data.claimNo ?? '')} đang được xử lý hoàn tiền.`,
+    }),
+  },
+  'claim.refund_executed': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'CVC đã hoàn tiền khiếu nại',
+      body: `Khiếu nại ${String(data.claimNo ?? '')}: ${String(data.amount ?? '')} ${String(
+        data.currency ?? '',
+      )}. Vui lòng xác nhận đã nhận.`,
+    }),
+  },
+  'claim.refund_confirmed': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Khách đã nhận tiền hoàn',
+      body: `Khiếu nại ${String(data.claimNo ?? '')} đã được khách xác nhận.`,
+    }),
+  },
+  'claim.closed': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Khiếu nại đã kết luận',
+      body: `Khiếu nại ${String(data.claimNo ?? '')} đã đóng (${String(data.decision ?? '')}).`,
+    }),
+  },
+  'claim.rejected': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Khiếu nại bị từ chối',
+      body: `Khiếu nại ${String(data.claimNo ?? '')} không được chấp nhận${
+        data.reason ? `: ${String(data.reason)}` : ''
+      }.`,
+    }),
+  },
+  'claim.withdrawn': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Khiếu nại đã được rút',
+      body: `Khiếu nại ${String(data.claimNo ?? '')} đã được khách rút.`,
+    }),
+  },
 };

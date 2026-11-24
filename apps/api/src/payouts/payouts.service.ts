@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { Role } from '@cvc/shared';
+import { CLAIM_OPEN_STATUSES, Role } from '@cvc/shared';
 import {
   BadRequestException,
   ConflictException,
@@ -73,6 +73,14 @@ export class PayoutsService {
     const order = await this.loadOrder(orderId);
     if (order.status === 'CANCELLED') {
       throw this.conflict('ORDER_CANCELLED', 'Đơn đã huỷ, không tạo được lệnh chi.');
+    }
+    // P4.22 — a supplier is not paid while a claim is still being handled
+    // (mirrors the demo rule: received quantity/payout wait for the claim).
+    const openClaims = await this.prisma.claim.count({
+      where: { orderId: order.id, status: { in: [...CLAIM_OPEN_STATUSES] } },
+    });
+    if (openClaims > 0) {
+      throw this.conflict('OPEN_CLAIMS', 'Đơn còn khiếu nại đang xử lý; chưa thể chi cho NCC.');
     }
     const supplier = await this.loadSupplier(order.supplierId);
     if (!supplier) throw new NotFoundException(ORDER_NOT_FOUND);

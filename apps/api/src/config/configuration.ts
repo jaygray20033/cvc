@@ -8,6 +8,8 @@ export default (env: Env) => ({
     appUrl: env.APP_URL,
     apiUrl: env.API_URL,
     isProduction: env.NODE_ENV === 'production',
+    // P4.21: simulation is never available in production.
+    enableSimulation: env.NODE_ENV !== 'production' && env.ENABLE_SIMULATION,
   },
   database: { url: env.DATABASE_URL },
   redis: { url: env.REDIS_URL },

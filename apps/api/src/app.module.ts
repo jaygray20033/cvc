@@ -11,6 +11,7 @@ import { AUTH_LIMITS } from './auth/auth.constants';
 import { AuthModule } from './auth/auth.module';
 import { BannersModule } from './banners/banners.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { ClaimsModule } from './claims/claims.module';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
 import { AuditModule } from './common/audit/audit.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -36,6 +37,7 @@ import { SamplesModule } from './samples/samples.module';
 import { SearchModule } from './search/search.module';
 import { SettingsModule } from './settings/settings.module';
 import { ShipmentsModule } from './shipments/shipments.module';
+import { SimulationModule } from './simulation/simulation.module';
 import { SourcingModule } from './sourcing/sourcing.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 
@@ -90,6 +92,8 @@ import { SuppliersModule } from './suppliers/suppliers.module';
     ProductionModule,
     ShipmentsModule,
     PayoutsModule,
+    ClaimsModule,
+    SimulationModule,
   ],
   controllers: [AppController],
   providers: [

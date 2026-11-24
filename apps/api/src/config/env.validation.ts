@@ -61,6 +61,14 @@ const envSchema = z.object({
   // remote scan and falls back to local EICAR signature checking in dev.
   CLAMAV_HOST: z.string().optional().default(''),
   CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
+
+  // P4.21 — demo automation routes. Always false by default; production is
+  // forced off in configuration() regardless of this flag.
+  ENABLE_SIMULATION: z
+    .enum(['true', 'false'])
+    .optional()
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

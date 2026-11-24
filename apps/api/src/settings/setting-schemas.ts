@@ -65,6 +65,12 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     defaultValue: 5,
     description: 'Số ngày không cập nhật mốc vận chuyển trước khi nhắc NCC/sales.',
   },
+  'claims.windowDays': {
+    schema: z.number().int().min(1).max(90),
+    defaultValue: 7,
+    description:
+      'Số ngày khách được mở khiếu nại sau khi hàng được đánh dấu đã giao (D8 tạm chốt).',
+  },
 };
 
 export type SettingKey = keyof typeof SETTING_DEFINITIONS;

@@ -509,6 +509,8 @@ model FileObject {
   payoutProofs               PayoutProof[]
   productionReportMedia      ProductionReportMedia[]
   invoices                   Invoice[]
+  // P4.22 claim evidence photos/videos.
+  claimEvidence              ClaimEvidence[]
 
   @@index([ownerType, ownerId, createdAt])
   @@index([sha256])
@@ -1052,6 +1054,8 @@ model Order {
   customerInfo      OrderCustomerInfo?
   invoices          Invoice[]
   sourcingCase      SourcingCase?      @relation("SourcingCaseOrder")
+  // P4.21 demo automation (test/staging only).
+  simulation        OrderSimulation?
 
   @@index([buyerId, status])
   @@index([supplierId, status])
@@ -1289,11 +1293,23 @@ model ProductionReportMedia {
 }
 
 enum ClaimStatus {
+  // Legacy P3.3 values (kept for rows created before P4.22).
   OPEN
   PROPOSED
   RESOLVED
   REJECTED
   CANCELLED
+  // P4.22 flow (OPEN doubles as "opened"):
+  // OPEN → PROPOSED → (TOPUP_PENDING | RESOLUTION_CHOSEN) → …
+  RESOLUTION_CHOSEN
+  TOPUP_PENDING
+  TOPUP_CONFIRMED
+  RETURN_SENT
+  RETURN_RECEIVED
+  REFUND_EXECUTED
+  REFUND_CONFIRMED
+  CLOSED
+  WITHDRAWN
 }
 
 enum ClaimType {
@@ -1315,6 +1331,22 @@ model Claim {
   status    ClaimStatus @default(OPEN)
   filedById String
   filedBy   User        @relation(fields: [filedById], references: [id], onDelete: Restrict)
+  // P4.22 snapshot: quantities and money are frozen when the claim is filed so
+  // later edits to the order/quote cannot change the refund base.
+  orderedQuantity  Int?
+  missingQuantity  Int?
+  actualQuantity   Int?
+  unitPrice        Decimal? @db.Decimal(18, 2)
+  amount           Decimal? @db.Decimal(18, 2)
+  currency         String   @default("VND") @db.VarChar(3)
+  // TOPUP | REFUND | RETURN_REFUND, chosen by the buyer.
+  resolutionKind   String?  @db.VarChar(32)
+  // Supplier top-up progress (0..3; 3 = delivered, buyer may confirm).
+  topupStage       Int      @default(0)
+  topupDeliveredAt DateTime?
+  proposedAt       DateTime?
+  chosenAt         DateTime?
+  closedAt         DateTime?
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
@@ -1322,9 +1354,39 @@ model Claim {
   resolution ClaimResolution?
   returns    ReturnShipment[]
   refunds    Refund[]
+  evidences  ClaimEvidence[]
 
   @@index([orderId, status])
   @@map("claims")
+}
+
+// P4.21 — demo automation flag. Only registered when ENABLE_SIMULATION=true;
+// production never exposes the routes that write this table.
+model OrderSimulation {
+  id           String    @id @default(cuid())
+  orderId      String    @unique
+  order        Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  enabled      Boolean   @default(true)
+  lastPumpedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("order_simulations")
+}
+
+// P4.22 — photos/videos are mandatory evidence for a claim.
+model ClaimEvidence {
+  id           String      @id @default(cuid())
+  claimId      String
+  claim        Claim       @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  fileObjectId String?
+  fileObject   FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  // PHOTO | VIDEO
+  kind         String      @default("PHOTO") @db.VarChar(16)
+  createdAt    DateTime    @default(now())
+
+  @@index([claimId])
+  @@map("claim_evidence")
 }
 
 enum ClaimProposalKind {

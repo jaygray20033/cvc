@@ -1,4 +1,5 @@
 import {
+  CLAIM_OPEN_STATUSES,
   displayStageFor,
   ORDER_FLOW,
   ORDER_TRANSITION_ACTORS,
@@ -309,7 +310,7 @@ export class OrdersService {
       }
       case 'COMPLETED': {
         const open = await this.prisma.claim.count({
-          where: { orderId: order.id, status: { in: ['OPEN', 'PROPOSED'] } },
+          where: { orderId: order.id, status: { in: [...CLAIM_OPEN_STATUSES] } },
         });
         if (open > 0) {
           throw this.conflict('OPEN_CLAIMS', 'Còn khiếu nại đang mở; chưa thể hoàn tất đơn.');
