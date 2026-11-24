@@ -25,13 +25,17 @@ import { KycModule } from './kyc/kyc.module';
 import { MeModule } from './me/me.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OrdersModule } from './orders/orders.module';
+import { PaymentsModule } from './payments/payments.module';
+import { PayoutsModule } from './payouts/payouts.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ProductionModule } from './production/production.module';
 import { QueueModule } from './queue/queue.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { RedisModule } from './redis/redis.module';
 import { SamplesModule } from './samples/samples.module';
 import { SearchModule } from './search/search.module';
 import { SettingsModule } from './settings/settings.module';
+import { ShipmentsModule } from './shipments/shipments.module';
 import { SourcingModule } from './sourcing/sourcing.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 
@@ -82,6 +86,10 @@ import { SuppliersModule } from './suppliers/suppliers.module';
     DealRoomsModule,
     OrdersModule,
     SamplesModule,
+    PaymentsModule,
+    ProductionModule,
+    ShipmentsModule,
+    PayoutsModule,
   ],
   controllers: [AppController],
   providers: [

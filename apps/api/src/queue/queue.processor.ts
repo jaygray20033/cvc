@@ -6,8 +6,11 @@ import Redis from 'ioredis';
 
 import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PaymentsService } from '../payments/payments.service';
+import { PayoutsService } from '../payouts/payouts.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { ShipmentsService } from '../shipments/shipments.service';
 import { SourcingRequestsService } from '../sourcing/sourcing-requests.service';
 import { DistributedLockService } from './distributed-lock.service';
 import { DEAD_LETTER_QUEUE, QUEUE_NAMES, type QueueName } from './queue.constants';
@@ -34,6 +37,9 @@ export class QueueProcessor implements OnModuleInit, OnModuleDestroy {
     private readonly files: FilesService,
     private readonly redis: RedisService,
     private readonly sourcing: SourcingRequestsService,
+    private readonly payments: PaymentsService,
+    private readonly shipments: ShipmentsService,
+    private readonly payouts: PayoutsService,
     config: ConfigService,
   ) {
     this.connection = new Redis(config.get<string>('redis.url', 'redis://localhost:6379'), {
@@ -88,6 +94,9 @@ export class QueueProcessor implements OnModuleInit, OnModuleDestroy {
           'kyc.sla-sweep': () => this.sweepKycSla(),
           'files.rescan-stuck': () => this.rescanStuckFiles(),
           'sourcing.sla-remind': () => this.remindSourcingSla(),
+          'payments.expire': () => this.expirePayments(),
+          'shipping.remind-stale': () => this.remindStaleShipments(),
+          'payouts.auto-confirm': () => this.autoConfirmPayouts(),
         };
       default:
         return {};
@@ -163,6 +172,21 @@ export class QueueProcessor implements OnModuleInit, OnModuleDestroy {
       {},
       { repeat: { pattern: '*/10 * * * *' }, jobId: 'cron-sourcing-sla-remind' },
     );
+    await cron.add(
+      'payments.expire',
+      {},
+      { repeat: { pattern: '*/10 * * * *' }, jobId: 'cron-payments-expire' },
+    );
+    await cron.add(
+      'shipping.remind-stale',
+      {},
+      { repeat: { pattern: '0 * * * *' }, jobId: 'cron-shipping-remind-stale' },
+    );
+    await cron.add(
+      'payouts.auto-confirm',
+      {},
+      { repeat: { pattern: '0 2 * * *' }, jobId: 'cron-payouts-auto-confirm' },
+    );
   }
 
   // KYC SLA sweep: log pending submissions older than the SLA (manual ops).
@@ -198,6 +222,25 @@ export class QueueProcessor implements OnModuleInit, OnModuleDestroy {
   private async remindSourcingSla(): Promise<unknown> {
     return this.lock.withLock('sourcing-sla-remind', 10 * 60 * 1000, () =>
       this.sourcing.remindOverdueSla(),
+    );
+  }
+
+  // P4.19: payment requests past their proof deadline become EXPIRED.
+  private async expirePayments(): Promise<unknown> {
+    return this.lock.withLock('payments-expire', 5 * 60 * 1000, () => this.payments.expireDue());
+  }
+
+  // P4.19: nudges on shipments with no new milestone for N days.
+  private async remindStaleShipments(): Promise<unknown> {
+    return this.lock.withLock('shipping-remind-stale', 10 * 60 * 1000, () =>
+      this.shipments.remindStale(),
+    );
+  }
+
+  // P4.20: auto-confirm completed payouts after the configured days.
+  private async autoConfirmPayouts(): Promise<unknown> {
+    return this.lock.withLock('payouts-auto-confirm', 10 * 60 * 1000, () =>
+      this.payouts.autoConfirm(),
     );
   }
 

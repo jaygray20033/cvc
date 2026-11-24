@@ -343,7 +343,9 @@ export class OrdersService {
       where: {
         purposeType: 'order',
         purposeId: orderId,
-        status: 'CONFIRMED',
+        // P4.19 approvals count as paid: approved partial transfers still
+        // release the next step, matching PaymentsService.paidTotal.
+        status: { in: ['CONFIRMED', 'APPROVED', 'PARTIAL'] },
         currency,
       },
       _sum: { amount: true },

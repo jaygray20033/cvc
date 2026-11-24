@@ -143,6 +143,8 @@ model User {
   reportsGenerated             Report[]
   crmContactsOwned             CrmContact[]
   publishedSourcingCases       SourcingCase[]        @relation("SourcingCasePublisher")
+  shipmentsCreated             Shipment[]            @relation("ShipmentCreator")
+  productionReportsMade        ProductionReport[]    @relation("ProductionReportAuthor")
 
   @@map("users")
 }
@@ -505,6 +507,7 @@ model FileObject {
   // P3.9 file references.
   paymentProofs              PaymentProof[]
   payoutProofs               PayoutProof[]
+  productionReportMedia      ProductionReportMedia[]
   invoices                   Invoice[]
 
   @@index([ownerType, ownerId, createdAt])
@@ -1036,18 +1039,19 @@ model Order {
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
-  stageLogs    OrderStageLog[]
-  events       OrderEvent[]
-  samples      Sample[]
-  shipments    Shipment[]
-  claims       Claim[]
-  refunds      Refund[]
-  dealRoom     DealRoom?
-  qcReports    QcReport[]
-  LockedTerms  LockedTerms?
-  customerInfo OrderCustomerInfo?
-  invoices     Invoice[]
-  sourcingCase SourcingCase?   @relation("SourcingCaseOrder")
+  stageLogs         OrderStageLog[]
+  events            OrderEvent[]
+  samples           Sample[]
+  shipments         Shipment[]
+  productionReports ProductionReport[]
+  claims            Claim[]
+  refunds           Refund[]
+  dealRoom          DealRoom?
+  qcReports         QcReport[]
+  LockedTerms       LockedTerms?
+  customerInfo      OrderCustomerInfo?
+  invoices          Invoice[]
+  sourcingCase      SourcingCase?      @relation("SourcingCaseOrder")
 
   @@index([buyerId, status])
   @@index([supplierId, status])
@@ -1061,22 +1065,22 @@ model Order {
 // the order (or lockedAt is set) the row becomes read-only. The CCCD number is
 // AES-256-GCM encrypted; only last4 is returned by the API.
 model OrderCustomerInfo {
-  id                 String   @id @default(cuid())
-  orderId            String   @unique
-  order              Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  orgType            OrgType  @default(PERSONAL)
-  legalName          String   @db.VarChar(191)
-  taxId              String?  @db.VarChar(14)
-  businessRegNo      String?  @db.VarChar(20)
-  cccdNumberEnc      String?  @db.VarChar(255)
-  cccdLast4          String?  @db.VarChar(4)
-  address            String   @db.VarChar(255)
-  representativeName String?  @db.VarChar(191)
+  id                 String    @id @default(cuid())
+  orderId            String    @unique
+  order              Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orgType            OrgType   @default(PERSONAL)
+  legalName          String    @db.VarChar(191)
+  taxId              String?   @db.VarChar(14)
+  businessRegNo      String?   @db.VarChar(20)
+  cccdNumberEnc      String?   @db.VarChar(255)
+  cccdLast4          String?   @db.VarChar(4)
+  address            String    @db.VarChar(255)
+  representativeName String?   @db.VarChar(191)
   lockedAt           DateTime?
   lockedById         String?
-  version            Int      @default(1)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  version            Int       @default(1)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@map("order_customer_info")
 }
@@ -1211,6 +1215,12 @@ model Shipment {
   trackingUrl       String?        @db.VarChar(500)
   proofFileObjectId String?
   proofFile         FileObject?    @relation(fields: [proofFileObjectId], references: [id], onDelete: SetNull)
+  // P4.19: who entered the shipment (supplier/sales/admin) and the promised
+  // delivery date. lastReminderAt dedupes the stale-tracking cron.
+  createdById       String?
+  createdBy         User?          @relation("ShipmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  expectedAt        DateTime?
+  lastReminderAt    DateTime?
   status            ShipmentStatus @default(PREPARING)
   shippedAt         DateTime?
   deliveredAt       DateTime?
@@ -1222,6 +1232,7 @@ model Shipment {
 
   @@index([orderId])
   @@index([trackingNo])
+  @@index([createdById])
   @@map("shipments")
 }
 
@@ -1230,8 +1241,11 @@ model ShipmentStop {
   id          String   @id @default(cuid())
   shipmentId  String
   shipment    Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  // Suggested codes live in @cvc/shared SHIPPING_STOP_SUGGESTIONS.
+  type        String?  @db.VarChar(32)
   occurredAt  DateTime
   description String   @db.VarChar(500)
+  location    String?  @db.VarChar(200)
   enteredById String
   enteredBy   User     @relation(fields: [enteredById], references: [id], onDelete: Restrict)
   createdAt   DateTime @default(now())
@@ -1239,6 +1253,39 @@ model ShipmentStop {
 
   @@index([shipmentId, occurredAt])
   @@map("shipment_stops")
+}
+
+// P4.19 — supplier production reports. Photos/videos are file objects; the
+// last report marked ready makes the order eligible for QC (P4.16 guard reads
+// OrderEvent production.reported / production.ready).
+model ProductionReport {
+  id           String   @id @default(cuid())
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reportedById String?
+  reportedBy   User?    @relation("ProductionReportAuthor", fields: [reportedById], references: [id], onDelete: SetNull)
+  note         String?  @db.VarChar(2000)
+  ready        Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  media ProductionReportMedia[]
+
+  @@index([orderId, createdAt])
+  @@map("production_reports")
+}
+
+model ProductionReportMedia {
+  id           String           @id @default(cuid())
+  reportId     String
+  report       ProductionReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  fileObjectId String?
+  fileObject   FileObject?      @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  // PHOTO | VIDEO
+  kind         String           @default("PHOTO") @db.VarChar(16)
+
+  @@index([reportId])
+  @@map("production_report_media")
 }
 
 enum ClaimStatus {
@@ -2547,11 +2594,27 @@ model ReceivingAccount {
   @@map("receiving_accounts")
 }
 
+// P4.19 manual P2P flow: AWAITING_PROOF → PROOF_SUBMITTED → APPROVED |
+// PARTIAL | REJECTED; unpaid requests past dueAt become EXPIRED. The legacy
+// PENDING/CONFIRMED values stay for rows created before P4.19 (P3.9 tests).
 enum PaymentStatus {
   PENDING
   CONFIRMED
   REJECTED
   REFUNDED
+  AWAITING_PROOF
+  PROOF_SUBMITTED
+  APPROVED
+  PARTIAL
+  EXPIRED
+}
+
+// What the payment is for. purposeType/purposeId remain the loose order link
+// ('order' + orderId) so P4.16 guards keep working.
+enum OrderPaymentKind {
+  DEPOSIT
+  FINAL
+  SAMPLE_FEE
 }
 
 // Manual transfer from a user to a receiving account (D13).
@@ -2566,6 +2629,17 @@ model Payment {
   receivingAccountId String
   receivingAccount   ReceivingAccount @relation(fields: [receivingAccountId], references: [id], onDelete: Restrict)
   amount             Decimal          @db.Decimal(18, 2)
+  // P4.19: requestedAmount is the original ask; on a partial approval
+  // `amount` becomes the amount actually received and approvedAmount records
+  // it too. A follow-up request covers the remainder.
+  requestedAmount    Decimal?         @db.Decimal(18, 2)
+  approvedAmount     Decimal?         @db.Decimal(18, 2)
+  kind               OrderPaymentKind @default(DEPOSIT)
+  // Unique transfer content the customer must put in the bank memo.
+  referenceCode      String?          @unique @db.VarChar(32)
+  dueAt              DateTime?
+  proofSubmittedAt   DateTime?
+  expiredAt          DateTime?
   currency           String           @default("VND") @db.VarChar(3)
   status             PaymentStatus    @default(PENDING)
   confirmedById      String?
@@ -2582,23 +2656,29 @@ model Payment {
   @@index([userId, status])
   @@index([purposeType, purposeId])
   @@index([status, createdAt])
+  @@index([dueAt])
   @@map("payments")
 }
 
 model PaymentProof {
-  id           String      @id @default(cuid())
-  paymentId    String
-  payment      Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  fileObjectId String?
-  fileObject   FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  id             String      @id @default(cuid())
+  paymentId      String
+  payment        Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  fileObjectId   String?
+  fileObject     FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
   // SHA-256 of the uploaded proof image: blocks reusing the same picture
   // across payments (checked in service; hash kept for dedupe).
-  sha256       String      @db.VarChar(64)
-  uploadedById String?
-  uploadedBy   User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
-  note         String?     @db.VarChar(255)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  sha256         String      @db.VarChar(64)
+  // P4.19: what the customer declares about the transfer.
+  amount         Decimal?    @db.Decimal(18, 2)
+  transferredAt  DateTime?
+  senderBank     String?     @db.VarChar(100)
+  transactionRef String?     @unique @db.VarChar(100)
+  uploadedById   String?
+  uploadedBy     User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  note           String?     @db.VarChar(255)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
   @@unique([paymentId, sha256])
   @@index([sha256])
@@ -2617,23 +2697,38 @@ enum PayoutStatus {
 
 // Manual disbursement from CVC to a payee (supplier/retailer/participant, D13).
 model Payout {
-  id            String       @id @default(cuid())
-  payoutNo      String       @unique @db.VarChar(32) // CVC-PO-...
+  id                     String       @id @default(cuid())
+  payoutNo               String       @unique @db.VarChar(32) // CVC-PO-...
   // Loose payee reference: supplier | retailer | participant | cvc.
-  payeeType     String       @db.VarChar(32)
-  payeeId       String       @db.VarChar(64)
-  bankAccountId String?
-  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
-  amount        Decimal      @db.Decimal(18, 2)
-  currency      String       @default("VND") @db.VarChar(3)
-  status        PayoutStatus @default(PENDING)
-  approvedById  String?
-  approvedBy    User?        @relation("PayoutApprover", fields: [approvedById], references: [id], onDelete: SetNull)
-  approvedAt    DateTime?
-  processedAt   DateTime?
-  note          String?      @db.VarChar(500)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  payeeType              String       @db.VarChar(32)
+  payeeId                String       @db.VarChar(64)
+  bankAccountId          String?
+  bankAccount            BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  amount                 Decimal      @db.Decimal(18, 2)
+  currency               String       @default("VND") @db.VarChar(3)
+  status                 PayoutStatus @default(PENDING)
+  // P4.20: loose order link, unique transfer reference for anti-duplicate
+  // payouts, and the two-layer approval trail (admin_finance).
+  purposeType            String?      @db.VarChar(32)
+  purposeId              String?      @db.VarChar(64)
+  referenceCode          String?      @unique @db.VarChar(32)
+  requiresSecondApproval Boolean      @default(false)
+  approvalCount          Int          @default(0)
+  firstApprovedById      String?      @db.VarChar(64)
+  secondApprovedById     String?      @db.VarChar(64)
+  secondApprovedAt       DateTime?
+  approvedById           String?
+  approvedBy             User?        @relation("PayoutApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt             DateTime?
+  processedAt            DateTime?
+  paidById               String?      @db.VarChar(64)
+  paidAt                 DateTime?
+  transactionRef         String?      @unique @db.VarChar(100)
+  confirmedById          String?      @db.VarChar(64)
+  confirmedAt            DateTime?
+  note                   String?      @db.VarChar(500)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
 
   proofs         PayoutProof[]
   statementLines BankStatementLine[]
@@ -2642,21 +2737,24 @@ model Payout {
 
   @@index([payeeType, payeeId])
   @@index([status])
+  @@index([purposeType, purposeId])
   @@map("payouts")
 }
 
 model PayoutProof {
-  id           String      @id @default(cuid())
-  payoutId     String
-  payout       Payout      @relation(fields: [payoutId], references: [id], onDelete: Cascade)
-  fileObjectId String?
-  fileObject   FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
-  sha256       String      @db.VarChar(64)
-  uploadedById String?
-  uploadedBy   User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
-  note         String?     @db.VarChar(255)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id             String      @id @default(cuid())
+  payoutId       String
+  payout         Payout      @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  fileObjectId   String?
+  fileObject     FileObject? @relation(fields: [fileObjectId], references: [id], onDelete: SetNull)
+  sha256         String      @db.VarChar(64)
+  // P4.20: bank transaction reference of the actual transfer.
+  transactionRef String?     @db.VarChar(100)
+  uploadedById   String?
+  uploadedBy     User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  note           String?     @db.VarChar(255)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
   @@unique([payoutId, sha256])
   @@map("payout_proofs")

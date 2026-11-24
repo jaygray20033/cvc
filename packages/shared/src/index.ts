@@ -48,5 +48,6 @@ export const KYC_LEVELS = ['BASIC', 'FULL'] as const;
 export type KycLevel = (typeof KYC_LEVELS)[number];
 
 // P4.16/P4.17 — order + sample state machines shared by api and web.
+export * from './fulfillment';
 export * from './order-state-machine';
 export * from './sample-state-machine';

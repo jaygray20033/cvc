@@ -1,6 +1,9 @@
 import { Global, Module } from '@nestjs/common';
 
 import { FilesModule } from '../files/files.module';
+import { PaymentsModule } from '../payments/payments.module';
+import { PayoutsModule } from '../payouts/payouts.module';
+import { ShipmentsModule } from '../shipments/shipments.module';
 import { SourcingModule } from '../sourcing/sourcing.module';
 import { DistributedLockService } from './distributed-lock.service';
 import { JobsAdminController } from './jobs-admin.controller';
@@ -13,7 +16,7 @@ import { QueueService } from './queue.service';
 // imported for the file post-process handler.
 @Global()
 @Module({
-  imports: [FilesModule, SourcingModule],
+  imports: [FilesModule, SourcingModule, PaymentsModule, ShipmentsModule, PayoutsModule],
   controllers: [JobsAdminController],
   providers: [QueueService, DistributedLockService, QueueProcessor],
   exports: [QueueService, DistributedLockService],

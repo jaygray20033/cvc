@@ -45,6 +45,26 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     defaultValue: 2,
     description: 'Số vòng sửa mẫu tối đa trước khi khách phải duyệt hoặc từ chối.',
   },
+  'payments.proofDueDays': {
+    schema: z.number().int().min(1).max(60),
+    defaultValue: 3,
+    description: 'Số ngày khách phải nộp ảnh minh chứng thanh toán kể từ khi tạo yêu cầu.',
+  },
+  'payouts.dualApprovalThreshold': {
+    schema: z.number().min(0),
+    defaultValue: 50_000_000,
+    description: 'Ngưỡng tiền (theo currency của payout) cần duyệt hai lớp trước khi chi NCC.',
+  },
+  'payouts.autoConfirmDays': {
+    schema: z.number().int().min(1).max(90),
+    defaultValue: 7,
+    description: 'Số ngày sau khi chi mà NCC không xác nhận thì hệ thống tự xác nhận.',
+  },
+  'shipping.staleAfterDays': {
+    schema: z.number().int().min(1).max(60),
+    defaultValue: 5,
+    description: 'Số ngày không cập nhật mốc vận chuyển trước khi nhắc NCC/sales.',
+  },
 };
 
 export type SettingKey = keyof typeof SETTING_DEFINITIONS;

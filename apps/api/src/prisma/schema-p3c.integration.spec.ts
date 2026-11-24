@@ -79,7 +79,10 @@ describeDb('Schema P3.9-P3.11 (integration)', () => {
     await prisma.bankStatementImport.deleteMany({ where: { id: { in: ids.importIds } } });
     await prisma.paymentProof.deleteMany({ where: { paymentId: { in: ids.paymentIds } } });
     await prisma.payment.deleteMany({ where: { id: { in: ids.paymentIds } } });
-    await prisma.payoutProof.deleteMany({ where: { payoutId: { in: ids.payoutIds } } });
+    // P4.20 payout proofs are immutable (trigger), unlock for cleanup.
+    await withUnlock(async (tx) => {
+      await tx.payoutProof.deleteMany({ where: { payoutId: { in: ids.payoutIds } } });
+    });
     await prisma.withdrawal.deleteMany({ where: { id: { in: ids.withdrawalIds } } });
     await prisma.settlement.deleteMany({ where: { id: { in: ids.settlementIds } } });
     await prisma.payout.deleteMany({ where: { id: { in: ids.payoutIds } } });
