@@ -5,7 +5,6 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 
-import { AppModule } from '../app.module';
 import { TokenService } from '../auth/token.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -82,7 +81,10 @@ async function cleanup(): Promise<void> {
 
 describeDb('Simulation automation (P4.21)', () => {
   beforeAll(async () => {
+    // Set the environment before importing AppModule: ConfigModule.forRoot
+    // validates and caches env when the module is defined.
     process.env.ENABLE_SIMULATION = 'true';
+    const { AppModule } = await import('../app.module');
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = module.createNestApplication();
     app.setGlobalPrefix('api/v1', { exclude: ['health', 'ready'] });

@@ -64,6 +64,12 @@ describeDb('Audit log (integration: P2.16)', () => {
     await app.init();
     prisma = app.get(PrismaService);
     redis = app.get(RedisService);
+    // The dev DB accumulates audit rows across runs. Prune old rows so the
+    // hash-chain test rebuilds a bounded chain instead of timing out; rows
+    // written during this run are kept and rebuilt by the test itself.
+    await prisma.auditLog.deleteMany({
+      where: { createdAt: { lt: new Date(Date.now() - 60 * 60 * 1000) } },
+    });
   });
 
   beforeEach(async () => {

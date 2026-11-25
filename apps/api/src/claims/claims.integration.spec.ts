@@ -361,6 +361,14 @@ describeDb('Claims (P4.22)', () => {
     expect(chosen.status).toBe(200);
     expect(chosen.body.status).toBe('TOPUP_PENDING');
 
+    // The order cannot complete while the claim is still open.
+    const blocked = await api()
+      .post(`/api/v1/orders/${orderId}/transition`)
+      .set(auth(admin))
+      .send({ to: 'COMPLETED' });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe('OPEN_CLAIMS');
+
     const earlyConfirm = await api()
       .post(`/api/v1/claims/${claimId}/topup/confirm`)
       .set(auth(buyer))
@@ -389,14 +397,6 @@ describeDb('Claims (P4.22)', () => {
     expect(confirmed.status).toBe(200);
     expect(confirmed.body.status).toBe('TOPUP_CONFIRMED');
     expect(confirmed.body.refunds).toHaveLength(0);
-
-    // The order cannot complete while the claim is open, but can after close.
-    const blocked = await api()
-      .post(`/api/v1/orders/${orderId}/transition`)
-      .set(auth(admin))
-      .send({ to: 'COMPLETED' });
-    expect(blocked.status).toBe(409);
-    expect(blocked.body.code).toBe('OPEN_CLAIMS');
 
     const closed = await api()
       .post(`/api/v1/admin/claims/${claimId}/resolve`)
@@ -497,17 +497,18 @@ describeDb('Claims (P4.22)', () => {
   it('refund is capped by the money actually collected', async () => {
     const { orderId } = await createOrder({ total: 26_000, paid: 10_000 });
     const fileId = await makeFile(buyer.id);
-    const created = await issue(orderId, qualityBody(fileId));
+    const created = await issue(orderId, missingBody(fileId, 1_000));
     expect(String(created.body.amount)).toBe('26000');
     const claimId = created.body.id as string;
     await api()
       .post(`/api/v1/claims/${claimId}/proposals`)
       .set(auth(admin))
       .send({ kind: 'REFUND' });
-    await api()
+    const chosen = await api()
       .post(`/api/v1/claims/${claimId}/choose-resolution`)
       .set(auth(buyer))
       .send({ choice: 'REFUND' });
+    expect(chosen.body.status).toBe('RESOLUTION_CHOSEN');
 
     const overPaid = await api()
       .post(`/api/v1/admin/claims/${claimId}/execute-refund`)
