@@ -40,6 +40,7 @@ import { ShipmentsModule } from './shipments/shipments.module';
 import { SimulationModule } from './simulation/simulation.module';
 import { SourcingModule } from './sourcing/sourcing.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
+import { WalletModule } from './wallet/wallet.module';
 
 @Module({
   imports: [
@@ -94,6 +95,7 @@ import { SuppliersModule } from './suppliers/suppliers.module';
     PayoutsModule,
     ClaimsModule,
     SimulationModule,
+    WalletModule,
   ],
   controllers: [AppController],
   providers: [

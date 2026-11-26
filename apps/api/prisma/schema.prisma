@@ -1321,34 +1321,34 @@ enum ClaimType {
 }
 
 model Claim {
-  id        String      @id @default(cuid())
+  id               String      @id @default(cuid())
   // Business number, format "CVC-CLM-..." (P3.3).
-  claimNo   String      @unique @db.VarChar(32)
-  orderId   String
-  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  type      ClaimType
-  reason    String      @db.VarChar(2000)
-  status    ClaimStatus @default(OPEN)
-  filedById String
-  filedBy   User        @relation(fields: [filedById], references: [id], onDelete: Restrict)
+  claimNo          String      @unique @db.VarChar(32)
+  orderId          String
+  order            Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type             ClaimType
+  reason           String      @db.VarChar(2000)
+  status           ClaimStatus @default(OPEN)
+  filedById        String
+  filedBy          User        @relation(fields: [filedById], references: [id], onDelete: Restrict)
   // P4.22 snapshot: quantities and money are frozen when the claim is filed so
   // later edits to the order/quote cannot change the refund base.
   orderedQuantity  Int?
   missingQuantity  Int?
   actualQuantity   Int?
-  unitPrice        Decimal? @db.Decimal(18, 2)
-  amount           Decimal? @db.Decimal(18, 2)
-  currency         String   @default("VND") @db.VarChar(3)
+  unitPrice        Decimal?    @db.Decimal(18, 2)
+  amount           Decimal?    @db.Decimal(18, 2)
+  currency         String      @default("VND") @db.VarChar(3)
   // TOPUP | REFUND | RETURN_REFUND, chosen by the buyer.
-  resolutionKind   String?  @db.VarChar(32)
+  resolutionKind   String?     @db.VarChar(32)
   // Supplier top-up progress (0..3; 3 = delivered, buyer may confirm).
-  topupStage       Int      @default(0)
+  topupStage       Int         @default(0)
   topupDeliveredAt DateTime?
   proposedAt       DateTime?
   chosenAt         DateTime?
   closedAt         DateTime?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
   proposals  ClaimProposal[]
   resolution ClaimResolution?
@@ -2524,15 +2524,18 @@ enum WalletStatus {
 }
 
 model Wallet {
-  id        String       @id @default(cuid())
-  userId    String       @unique
-  user      User         @relation(fields: [userId], references: [id], onDelete: Restrict)
-  currency  String       @default("VND") @db.VarChar(3)
+  id          String       @id @default(cuid())
+  userId      String       @unique
+  user        User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  currency    String       @default("VND") @db.VarChar(3)
   // Never goes negative: CHECK in the migration + service-level guard.
-  balance   Decimal      @default(0) @db.Decimal(18, 2)
-  status    WalletStatus @default(ACTIVE)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  // `balance` is the total liability cached from the ledger; `heldBalance`
+  // is the part reserved for pending withdrawals (P4.24/P4.26).
+  balance     Decimal      @default(0) @db.Decimal(18, 2)
+  heldBalance Decimal      @default(0) @db.Decimal(18, 2)
+  status      WalletStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   accounts    LedgerAccount[]
   withdrawals Withdrawal[]
@@ -2595,6 +2598,9 @@ model LedgerTransaction {
   // Free-form business reference, e.g. payment/payout/campaign id.
   refType         String?                 @db.VarChar(32)
   refId           String?                 @db.VarChar(64)
+  // P4.23: caller-supplied Idempotency-Key; unique when present so concurrent
+  // retries resolve to the same transaction.
+  idempotencyKey  String?                 @unique @db.VarChar(191)
   note            String?                 @db.VarChar(500)
   createdById     String
   createdBy       User                    @relation(fields: [createdById], references: [id], onDelete: Restrict)
@@ -2632,6 +2638,7 @@ model LedgerEntry {
 
   @@index([transactionId])
   @@index([accountId])
+  @@index([accountId, createdAt])
   @@map("ledger_entries")
 }
 
