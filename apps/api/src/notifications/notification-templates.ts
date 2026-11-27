@@ -341,4 +341,22 @@ export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
       body: `Khiếu nại ${String(data.claimNo ?? '')} đã được khách rút.`,
     }),
   },
+  // P4.25 — mandatory money-integrity alert for finance admins.
+  'money.conservation_mismatch': {
+    channels: ['in_app', 'email'],
+    mandatory: true,
+    render: (data) => ({
+      title: 'Cảnh báo: kiểm tra bảo toàn tiền không khớp',
+      body: `Lúc ${String(data.checkedAt ?? '')}, tổng nợ ${String(
+        data.debitTotal ?? '',
+      )} / tổng có ${String(data.creditTotal ?? '')}, ${String(
+        data.walletMismatches ?? 0,
+      )} ví lệch sổ cái. Rút tiền đang tạm khóa đến khi kiểm tra lại khớp.`,
+      emailSubject: 'CVC — Cảnh báo bảo toàn tiền (khóa rút tiền tạm thời)',
+      emailHtml:
+        '<p>Kiểm tra bảo toàn tiền phát hiện chênh lệch. Hệ thống đã tạm khóa thao tác rút tiền và gửi cảnh báo cho admin tài chính. Vui lòng đối chiếu sổ cái và ví.</p>',
+      emailText:
+        'Kiểm tra bảo toàn tiền phát hiện chênh lệch. Hệ thống đã tạm khóa thao tác rút tiền. Vui lòng đối chiếu sổ cái và ví.',
+    }),
+  },
 };

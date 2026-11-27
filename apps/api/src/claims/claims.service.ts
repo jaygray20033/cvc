@@ -18,6 +18,7 @@ import {
 import { type ClaimStatus, Prisma } from '@prisma/client';
 
 import type { AccessPayload } from '../common/decorators/current-user.decorator';
+import { ConservationService } from '../common/ledger/conservation.service';
 import { LedgerService } from '../common/ledger/ledger.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -115,6 +116,7 @@ export class ClaimsService {
     private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeService,
     private readonly ledger: LedgerService,
+    private readonly conservation: ConservationService,
   ) {}
 
   // POST /orders/:id/claims
@@ -755,6 +757,8 @@ export class ClaimsService {
       currency: claim.currency,
     });
     this.emitRealtime(claim.orderId, { claimId: claim.id, status: result.claim.status });
+    // P4.25: verify money conservation after the refund commits.
+    await this.conservation.runAfter('claim.refund');
     return {
       claim: this.view(result.claim, role, await this.extras(claim.orderId)),
       refund: this.refundView(result.refund),

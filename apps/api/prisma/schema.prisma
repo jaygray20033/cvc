@@ -2642,6 +2642,34 @@ model LedgerEntry {
   @@map("ledger_entries")
 }
 
+// P4.25 — periodic / post-transaction conservation check result. The latest row
+// decides whether withdrawals are temporarily blocked (MISMATCH).
+enum ConservationStatus {
+  OK
+  MISMATCH
+}
+
+model MoneyConservationRun {
+  id               String             @id @default(cuid())
+  source           String             @db.VarChar(40)
+  status           ConservationStatus
+  ledgerBalanced   Boolean
+  debitTotal       Decimal            @db.Decimal(18, 2)
+  creditTotal      Decimal            @db.Decimal(18, 2)
+  walletsChecked   Int                @default(0)
+  walletMismatches Int                @default(0)
+  moneyIn          Decimal            @default(0) @db.Decimal(18, 2)
+  moneyOut         Decimal            @default(0) @db.Decimal(18, 2)
+  cashHeld         Decimal            @default(0) @db.Decimal(18, 2)
+  report           Json?
+  alertedAt        DateTime?
+  triggeredById    String?
+  checkedAt        DateTime           @default(now())
+
+  @@index([checkedAt])
+  @@map("money_conservation_runs")
+}
+
 // Bank account that receives customer money (CVC's own accounts, D13).
 // Same encryption pattern as BankAccount: enc + last4 + sha256 hash for
 // uniqueness without decryption.

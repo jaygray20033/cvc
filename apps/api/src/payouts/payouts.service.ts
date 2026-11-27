@@ -12,6 +12,7 @@ import {
 import { type PayoutStatus, Prisma } from '@prisma/client';
 
 import type { AccessPayload } from '../common/decorators/current-user.decorator';
+import { ConservationService } from '../common/ledger/conservation.service';
 import { LedgerService } from '../common/ledger/ledger.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -66,6 +67,7 @@ export class PayoutsService {
     private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeService,
     private readonly ledger: LedgerService,
+    private readonly conservation: ConservationService,
   ) {}
 
   // POST /admin/orders/:id/supplier-payouts
@@ -398,6 +400,9 @@ export class PayoutsService {
       });
       return { ledgerTransactionId: ledger.transactionId };
     });
+
+    // P4.25: verify money conservation after the payout commits.
+    await this.conservation.runAfter('payout.mark-paid');
 
     const updated = await this.loadPayout(payout.id);
     await this.notifySupplier(updated.payeeId, 'payout.paid', {

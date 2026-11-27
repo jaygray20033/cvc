@@ -11,6 +11,7 @@ import {
 import { type PaymentStatus, Prisma } from '@prisma/client';
 
 import type { AccessPayload } from '../common/decorators/current-user.decorator';
+import { ConservationService } from '../common/ledger/conservation.service';
 import { LedgerService } from '../common/ledger/ledger.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -66,6 +67,7 @@ export class PaymentsService {
     private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeService,
     private readonly ledger: LedgerService,
+    private readonly conservation: ConservationService,
   ) {}
 
   // POST /orders/:id/payments
@@ -445,6 +447,9 @@ export class PaymentsService {
       });
       return { ledgerTransactionId: ledger.transactionId, followUpId };
     });
+
+    // P4.25: verify money conservation after the approval commits.
+    await this.conservation.runAfter('payment.approve');
 
     await this.notifications.emit(partial ? 'payment.partial' : 'payment.approved', order.buyerId, {
       orderNo: order.orderNo,

@@ -4,6 +4,7 @@ import type { Job } from 'bullmq';
 import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 
+import { ConservationService } from '../common/ledger/conservation.service';
 import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -40,6 +41,7 @@ export class QueueProcessor implements OnModuleInit, OnModuleDestroy {
     private readonly payments: PaymentsService,
     private readonly shipments: ShipmentsService,
     private readonly payouts: PayoutsService,
+    private readonly conservation: ConservationService,
     config: ConfigService,
   ) {
     this.connection = new Redis(config.get<string>('redis.url', 'redis://localhost:6379'), {
@@ -97,6 +99,7 @@ export class QueueProcessor implements OnModuleInit, OnModuleDestroy {
           'payments.expire': () => this.expirePayments(),
           'shipping.remind-stale': () => this.remindStaleShipments(),
           'payouts.auto-confirm': () => this.autoConfirmPayouts(),
+          'money.conservation': () => this.runConservation(),
         };
       default:
         return {};
@@ -187,6 +190,11 @@ export class QueueProcessor implements OnModuleInit, OnModuleDestroy {
       {},
       { repeat: { pattern: '0 2 * * *' }, jobId: 'cron-payouts-auto-confirm' },
     );
+    await cron.add(
+      'money.conservation',
+      {},
+      { repeat: { pattern: '*/15 * * * *' }, jobId: 'cron-money-conservation' },
+    );
   }
 
   // KYC SLA sweep: log pending submissions older than the SLA (manual ops).
@@ -241,6 +249,13 @@ export class QueueProcessor implements OnModuleInit, OnModuleDestroy {
   private async autoConfirmPayouts(): Promise<unknown> {
     return this.lock.withLock('payouts-auto-confirm', 10 * 60 * 1000, () =>
       this.payouts.autoConfirm(),
+    );
+  }
+
+  // P4.25: periodic conservation check (ledger + wallet caches + cash).
+  private async runConservation(): Promise<unknown> {
+    return this.lock.withLock('money-conservation', 10 * 60 * 1000, () =>
+      this.conservation.run({ source: 'cron' }),
     );
   }
 
