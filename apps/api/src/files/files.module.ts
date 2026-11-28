@@ -10,6 +10,8 @@ import { VirusScanService } from './virus-scan.service';
 @Module({
   controllers: [FilesController],
   providers: [FilesService, VirusScanService, S3Service],
-  exports: [FilesService],
+  // S3Service is exported so money modules (P4.26 withdrawal proofs) can
+  // presign a download for a user who is not the file owner.
+  exports: [FilesService, S3Service],
 })
 export class FilesModule {}

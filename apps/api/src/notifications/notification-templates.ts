@@ -341,6 +341,61 @@ export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
       body: `Khiếu nại ${String(data.claimNo ?? '')} đã được khách rút.`,
     }),
   },
+  // P4.26 — withdrawals: request → approval → manual bank transfer.
+  'withdrawal.requested': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Yêu cầu rút tiền mới',
+      body: `Yêu cầu ${String(data.withdrawalNo ?? '')} rút ${String(data.amount ?? '')} ${
+        data.currency ?? ''
+      } đang chờ duyệt. Nội dung chuyển khoản: ${String(data.referenceCode ?? '')}.`,
+    }),
+  },
+  'withdrawal.approval_pending': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Yêu cầu rút tiền cần duyệt lớp 2',
+      body: `Yêu cầu ${String(data.withdrawalNo ?? '')} (${String(data.amount ?? '')} ${
+        data.currency ?? ''
+      }) đã được duyệt lớp 1, cần admin tài chính khác duyệt tiếp.`,
+    }),
+  },
+  'withdrawal.approved': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Yêu cầu rút tiền đã được duyệt',
+      body: `Yêu cầu ${String(data.withdrawalNo ?? '')} rút ${String(data.amount ?? '')} ${
+        data.currency ?? ''
+      } đã được duyệt. CVC sẽ chuyển khoản thủ công và cập nhật minh chứng.`,
+    }),
+  },
+  'withdrawal.rejected': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Yêu cầu rút tiền bị từ chối',
+      body: `Yêu cầu ${String(data.withdrawalNo ?? '')} bị từ chối${
+        data.reason ? `: ${String(data.reason)}` : ''
+      }. Số tiền đã được hoàn về ví khả dụng.`,
+    }),
+  },
+  'withdrawal.paid': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'CVC đã chuyển tiền rút',
+      body: `Yêu cầu ${String(data.withdrawalNo ?? '')} rút ${String(data.amount ?? '')} ${
+        data.currency ?? ''
+      } đã được chuyển khoản (mã giao dịch ${String(data.transactionRef ?? '')}).`,
+    }),
+  },
+  'withdrawal.cancelled': {
+    channels: ['in_app'],
+    render: (data) => ({
+      title: 'Yêu cầu rút tiền đã hủy',
+      body: `Yêu cầu ${String(data.withdrawalNo ?? '')} đã bị hủy${
+        data.reason ? `: ${String(data.reason)}` : ''
+      }. Số tiền đã được hoàn về ví khả dụng.`,
+    }),
+  },
   // P4.25 — mandatory money-integrity alert for finance admins.
   'money.conservation_mismatch': {
     channels: ['in_app', 'email'],

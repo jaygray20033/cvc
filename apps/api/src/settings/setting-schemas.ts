@@ -71,6 +71,21 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     description:
       'Số ngày khách được mở khiếu nại sau khi hàng được đánh dấu đã giao (D8 tạm chốt).',
   },
+  'withdrawals.minAmount': {
+    schema: z.number().min(0),
+    defaultValue: 50_000,
+    description: 'Số tiền rút tối thiểu cho mỗi yêu cầu.',
+  },
+  'withdrawals.dailyLimit': {
+    schema: z.number().min(0),
+    defaultValue: 50_000_000,
+    description: 'Tổng tiền rút tối đa mỗi người dùng trong một ngày (UTC).',
+  },
+  'withdrawals.dualApprovalThreshold': {
+    schema: z.number().min(0),
+    defaultValue: 20_000_000,
+    description: 'Ngưỡng tiền cần hai lớp duyệt trước khi chi tiền rút.',
+  },
 };
 
 export type SettingKey = keyof typeof SETTING_DEFINITIONS;

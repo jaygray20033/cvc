@@ -297,11 +297,13 @@ describeDb('Schema P3.9-P3.11 (integration)', () => {
     ids.walletIds.push(wallet.id);
     const withdrawal = await prisma.withdrawal.create({
       data: {
+        withdrawalNo: `CVC-WD-TEST-${Date.now()}`,
+        referenceCode: `WDTEST${Date.now()}`,
         walletId: wallet.id,
         amount: 400,
         bankAccountId: bankAccount.id,
         payoutId: payout.id,
-        status: 'COMPLETED',
+        status: 'APPROVED',
       },
     });
     ids.withdrawalIds.push(withdrawal.id);

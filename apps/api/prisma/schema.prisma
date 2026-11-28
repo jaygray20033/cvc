@@ -507,6 +507,8 @@ model FileObject {
   // P3.9 file references.
   paymentProofs              PaymentProof[]
   payoutProofs               PayoutProof[]
+  // P4.26: manual bank-transfer proof attached to a paid withdrawal.
+  withdrawalProofs           Withdrawal[]
   productionReportMedia      ProductionReportMedia[]
   invoices                   Invoice[]
   // P4.22 claim evidence photos/videos.
@@ -2918,27 +2920,58 @@ enum WithdrawalStatus {
   PROCESSING
   COMPLETED
   FAILED
+  REJECTED
   CANCELLED
 }
 
-// User request to withdraw wallet balance; payoutId links the executed payout.
+// P4.26 - a user moves wallet balance to their verified bank account. Funds
+// are held on request, released on reject/cancel, and only leave the ledger
+// when finance records the manual transfer (proof + transaction reference).
 model Withdrawal {
-  id            String           @id @default(cuid())
-  walletId      String
-  wallet        Wallet           @relation(fields: [walletId], references: [id], onDelete: Restrict)
-  amount        Decimal          @db.Decimal(18, 2)
-  currency      String           @default("VND") @db.VarChar(3)
-  bankAccountId String?
-  bankAccount   BankAccount?     @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
-  status        WithdrawalStatus @default(PENDING)
-  payoutId      String?
-  payout        Payout?          @relation(fields: [payoutId], references: [id], onDelete: SetNull)
-  processedAt   DateTime?
-  note          String?          @db.VarChar(500)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  id                     String           @id @default(cuid())
+  withdrawalNo           String           @unique @db.VarChar(32) // CVC-WD-...
+  walletId               String
+  wallet                 Wallet           @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  amount                 Decimal          @db.Decimal(18, 2)
+  currency               String           @default("VND") @db.VarChar(3)
+  bankAccountId          String?
+  bankAccount            BankAccount?     @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  status                 WithdrawalStatus @default(PENDING)
+  payoutId               String?
+  payout                 Payout?          @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+  // Bank memo the user quotes so finance can match the transfer (P4.27).
+  referenceCode          String           @unique @db.VarChar(32)
+  // Two-layer approval above withdrawals.dualApprovalThreshold.
+  requiresSecondApproval Boolean          @default(false)
+  approvalCount          Int              @default(0)
+  firstApprovedById      String?          @db.VarChar(64)
+  firstApprovedAt        DateTime?
+  secondApprovedById     String?          @db.VarChar(64)
+  secondApprovedAt       DateTime?
+  approvedById           String?          @db.VarChar(64)
+  approvedAt             DateTime?
+  // Reject/cancel release the hold; the request never touched the ledger.
+  rejectedById           String?          @db.VarChar(64)
+  rejectedAt             DateTime?
+  rejectionReason        String?          @db.VarChar(500)
+  cancelledById          String?          @db.VarChar(64)
+  cancelledAt            DateTime?
+  cancelReason           String?          @db.VarChar(500)
+  // Manual transfer evidence; the DB CHECK requires these once COMPLETED.
+  paidById               String?          @db.VarChar(64)
+  paidAt                 DateTime?
+  transactionRef         String?          @unique @db.VarChar(100)
+  proofFileObjectId      String?
+  proofFileObject        FileObject?      @relation(fields: [proofFileObjectId], references: [id], onDelete: SetNull)
+  proofSha256            String?          @db.VarChar(64)
+  processedAt            DateTime?
+  note                   String?          @db.VarChar(500)
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
 
   @@index([walletId, status])
+  @@index([status, createdAt])
+  @@index([proofFileObjectId])
   @@map("withdrawals")
 }
 
